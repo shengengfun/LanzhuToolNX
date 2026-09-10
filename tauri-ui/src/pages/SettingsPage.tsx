@@ -11,12 +11,11 @@ import {
   Select,
 } from '~/components/ui'
 import { PathRow } from '~/components/common'
+import { AccentPicker } from '~/components/AccentPicker'
 import { ToolsFetch } from '~/components/ToolsFetch'
 import { useApp, pickFile, pickFolder, DEFAULT_SETTINGS } from '~/state'
 import * as api from '~/lib/api'
-import { ACCENT_PRESETS, accentHex } from '~/lib/appearance'
 import { VIDEO_FORMATS } from '~/lib/types'
-import { cn } from '~/lib/utils'
 
 /** 这几个工具是硬依赖：缺了对应功能直接不可用。 */
 const REQUIRED = [
@@ -49,48 +48,9 @@ const LOG_LEVEL_LABEL: Record<string, string> = {
 }
 
 /**
- * 直接填 HTML 色号的输入框。
- *
- * 输入过程中不校验（不然打一半就被吞了），失焦或回车时才判断：
- * 合法（#rgb / #rrggbb）就提交，非法就退回原值。
+ * 直接填 HTML 色号的输入框已挪进 `AccentPicker`（要跟 R/G/B 滑条同步），
+ * 这里只留一个说明。
  */
-function HexInput({
-  value,
-  fallback,
-  onCommit,
-}: {
-  value: string
-  /** 输入框为空时展示的占位色号（= 当前配色），让用户知道默认是什么 */
-  fallback: string
-  onCommit: (v: string) => void
-}) {
-  const [text, setText] = React.useState(value)
-  React.useEffect(() => setText(value), [value])
-
-  const commit = () => {
-    const t = text.trim()
-    if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(t)) {
-      onCommit(t.toUpperCase())
-    } else if (!t) {
-      onCommit('')
-    } else {
-      setText(value) // 非法输入：退回原值，别把设置改坏
-    }
-  }
-
-  return (
-    <input
-      value={text}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => e.key === 'Enter' && commit()}
-      spellCheck={false}
-      placeholder={fallback}
-      title="填 HTML 色号，回车生效"
-      className="h-7 w-[104px] rounded-lg border border-input/60 bg-muted/40 px-2 font-mono text-[12px] uppercase transition-colors focus-visible:border-primary focus-visible:bg-card focus-visible:outline-none"
-    />
-  )
-}
 
 export function SettingsPage() {
   const { settings, patchSettings, notify } = useApp()
@@ -223,77 +183,13 @@ export function SettingsPage() {
             </Field>
           </div>
 
-          <Field label="强调色" labelWidth={64} align="start">
-            <div className="space-y-2">
-              {/* 虹咲 13 人的应援色。鼠标悬停能看到是谁的颜色。 */}
-              <div className="flex flex-wrap items-center gap-1.5">
-                {ACCENT_PRESETS.map((p) => {
-                  const active = !settings.accentCustom && settings.accent === p.id
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      title={`${p.name} ${p.color}`}
-                      aria-label={p.name}
-                      onClick={() => patchSettings({ accent: p.id, accentCustom: '' })}
-                      className={cn(
-                        'flex size-7 items-center justify-center rounded-full border-2 transition-transform hover:scale-110',
-                        active
-                          ? 'border-foreground ring-2 ring-foreground/20'
-                          : 'border-border/60 hover:border-foreground/40',
-                      )}
-                      style={{ backgroundColor: p.color }}
-                    />
-                  )
-                })}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <label
-                  title="用取色器挑一个"
-                  className={cn(
-                    'relative flex size-7 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed transition-transform hover:scale-110',
-                    settings.accentCustom
-                      ? 'border-foreground ring-2 ring-foreground/20'
-                      : 'border-border/60 hover:border-foreground/40',
-                  )}
-                >
-                  <input
-                    type="color"
-                    className="absolute inset-0 size-full cursor-pointer opacity-0"
-                    value={settings.accentCustom || accentHex('#F69992')}
-                    onChange={(e) => patchSettings({ accentCustom: e.target.value })}
-                  />
-                  <span className="text-[12px] font-bold text-muted-foreground">#</span>
-                </label>
-
-                {/* 也可以直接填 HTML 色号 */}
-                <HexInput
-                  value={settings.accentCustom}
-                  fallback={
-                    ACCENT_PRESETS.find((p) => p.id === settings.accent)?.color ?? '#F69992'
-                  }
-                  onCommit={(v) => patchSettings({ accentCustom: v })}
-                />
-
-                {settings.accentCustom && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7"
-                    onClick={() => patchSettings({ accentCustom: '' })}
-                  >
-                    恢复默认
-                  </Button>
-                )}
-                {!settings.accentCustom && (
-                  <span className="text-[11.5px] text-muted-foreground">
-                    当前：{ACCENT_PRESETS.find((p) => p.id === settings.accent)?.name ?? '钟岚珠'}
-                  </span>
-                )}
-              </div>
-            </div>
-          </Field>
+          {/* 强调色：不带标签，色板自己会说清楚（选中打勾 → 自定义才展开滑条与色号） */}
+          <AccentPicker
+            accent={settings.accent}
+            accentCustom={settings.accentCustom}
+            onPick={(id) => patchSettings({ accent: id, accentCustom: '' })}
+            onCustom={(hex) => patchSettings({ accentCustom: hex })}
+          />
 
           <Field label="背景图" labelWidth={64}>
             <div className="flex items-center gap-2">

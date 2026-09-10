@@ -196,3 +196,33 @@ export function accentHex(fallback = '2F9E79') {
     .join('')
     .toUpperCase()
 }
+
+/** `#rrggbb` → [r, g, b]；解析不了返回 null。 */
+export function hexToRgb(hex: string): [number, number, number] | null {
+  let v = hex.trim().replace(/^#/, '')
+  if (v.length === 3) {
+    v = v
+      .split('')
+      .map((c) => c + c)
+      .join('')
+  }
+  if (!/^[0-9a-fA-F]{6}$/.test(v)) return null
+  const n = parseInt(v, 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+/** [r, g, b] → `#RRGGBB`（越界自动夹住）。 */
+export function rgbToHex(rgb: [number, number, number]) {
+  const c = (v: number) => Math.max(0, Math.min(255, Math.round(v)))
+  return `#${((c(rgb[0]) << 16) | (c(rgb[1]) << 8) | c(rgb[2])).toString(16).padStart(6, '0').toUpperCase()}`
+}
+
+/**
+ * 给某个底色挑一个能看清的对号颜色（色块上的勾用）。
+ * 黄底白勾是看不见的，所以这里按亮度现算。
+ */
+export function inkOn(hex: string) {
+  const h = hexToHsl(hex)
+  if (!h) return '#FFFFFF'
+  return prefersDarkText(h) ? '#1D1D1D' : '#FFFFFF'
+}

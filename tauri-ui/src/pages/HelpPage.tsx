@@ -59,6 +59,13 @@ export function HelpPage() {
       <GroupCard title="更新日志">
         <div className="space-y-3 text-[12px] leading-relaxed">
           <Changelog
+            version="v1.3.1"
+            items={[
+              '配色选择重做：选中色块内打对号（对号颜色按底色亮度现算），去掉「强调色」标签',
+              '自定义颜色改为 R/G/B 三根调整条 + HTML 色号输入，两者双向同步',
+            ]}
+          />
+          <Changelog
             version="v1.3.0"
             items={[
               '新增「压制预设」：内置 18 条（ProRes / DNxHR / AV1 / VP9 / FFV1 / MPEG-2 …）+ 可自建，能按源分辨率推荐',
