@@ -35,10 +35,21 @@ namespace ControlExs
     /// <summary>
     /// 实现仿QQ效果控件内部使用颜色表
     /// </summary>
-    internal class ColorTable
+    public class ColorTable
     {
         public static Color QQBorderColor = Color.LightBlue;  //LightBlue = Color.FromArgb(173, 216, 230)
         public static Color QQHighLightColor =RenderHelper.GetColor(QQBorderColor,255,-63,-11,23);   //Color.FromArgb(110, 205, 253)
         public static Color QQHighLightInnerColor = RenderHelper.GetColor(QQBorderColor, 255, -100, -44, 1);   //Color.FromArgb(73, 172, 231);
+
+        /// <summary>
+        /// 由宿主程序（岚珠工具箱）在启动时调用，把控件配色切换为现代主题。
+        /// 不调用则维持原有仿 QQ 蓝色外观，因此对其它引用 ControlExs 的项目无影响。
+        /// </summary>
+        public static void SetTheme(Color border, Color glowOuter, Color glowInner)
+        {
+            QQBorderColor = border;
+            QQHighLightColor = glowOuter;
+            QQHighLightInnerColor = glowInner;
+        }
     }
 }

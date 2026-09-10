@@ -1714,6 +1714,9 @@ namespace mp4box
             PresetXml();
             LoadVideoPreset();
             LoadSettings();
+
+            // 现代 UI 外壳（顶栏 / 左栏 / 右栏 / 底栏）
+            InitModernShell();
         }
 
         private void EnsureToolCompatibilityFiles()
@@ -4191,7 +4194,7 @@ namespace mp4box
                     x264VideoTextBox.EmptyTextTip = "可以把文件拖拽到这里";
                     x264SubTextBox.EmptyTextTip = "双击清空字幕文件文本框";
                     //x264OutTextBox.EmptyTextTip = "宽度和高度全为0即不改变分辨率";
-                    x264PathTextBox.EmptyTextTip = "字幕文件和视频文件在同一目录下且同名，不同名仅有语言后缀时请在右方选择或输入";
+                    x264PathTextBox.EmptyTextTip = "字幕与视频同名；不同名仅有语言后缀时在此输入";
                     //txtvideo3.EmptyTextTip = "音频参数在音频选项卡设定";
                     ExtractMP4TextBox.EmptyTextTip = "抽取的视频或音频在原视频目录下";
                     txtvideo8.EmptyTextTip = "抽取的视频或音频在原视频目录下";
@@ -4289,6 +4292,7 @@ namespace mp4box
 
                     ApplyLanIcon();
                     UpdateEstimatedSize();
+                    RestoreShellLayout();
         }
 
         private string GetCultureName()
@@ -5228,7 +5232,7 @@ namespace mp4box
 
         private void labelAudio_Click(object sender, EventArgs e)
         {
-            tabControl.SelectedIndex = 1;
+            NavigateTo(1);
         }
 
         private void SetupAVSPlayerButton_Click(object sender, EventArgs e)
@@ -5284,83 +5288,30 @@ namespace mp4box
 
         #region TabControl
 
-        private void tabControl_DragOver(object sender, DragEventArgs e)
-        {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
-            {
-                e.Effect = DragDropEffects.All;
-                Point pt = new Point(e.X + 2, e.Y + 2);
-                pt = PointToClient(pt);
-                int pi = GetTabPageByTab(pt);
-                if (pi != -1)
-                {
-                    tabControl.SelectedIndex = pi;
-                }
-            }
-            else e.Effect = DragDropEffects.None;
-        }
-
         /// <summary>
-        /// Finds the TabPage whose tab is contains the given point.
+        /// 保留原 TabControl 的快捷键行为：Ctrl+1..9 切换到对应功能页。
+        /// 序号顺序与原标签顺序一致（视频/音频/常用/封装/抽取/AVS/信息/设置/帮助）。
+        /// 原来「拖动文件到标签上即切换页面」的行为，改由顶栏导航项承担
+        /// （见 MainForm.Shell.cs 的 ShellNav_DragOver）。
         /// </summary>
-        /// <param name="pt">The point (given in client coordinates) to look for a TabPage.</param>
-        /// <returns>The TabPage whose tab is at the given point (null if there isn't one).</returns>
-        private int GetTabPageByTab(Point pt)
-        {
-            TabPage tp = null;
-            int pageIndex = -1;
-            for (int i = 0; i < tabControl.TabPages.Count; i++)
-            {
-                Rectangle a = tabControl.GetTabRect(i);
-
-                if (tabControl.GetTabRect(i).Contains(pt))
-                {
-                    tp = tabControl.TabPages[i];
-                    pageIndex = i;
-                    break;
-                }
-            }
-            return pageIndex;
-        }
-
         private void MainForm_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Modifiers == Keys.Control && e.KeyCode == Keys.D1)
-            {
-                tabControl.SelectedIndex = 0;
-            }
-            if (e.Modifiers == Keys.Control && e.KeyCode == Keys.D2)
-            {
-                tabControl.SelectedIndex = 1;
-            }
-            if (e.Modifiers == Keys.Control && e.KeyCode == Keys.D3)
-            {
-                tabControl.SelectedIndex = 2;
-            }
-            if (e.Modifiers == Keys.Control && e.KeyCode == Keys.D4)
-            {
-                tabControl.SelectedIndex = 3;
-            }
-            if (e.Modifiers == Keys.Control && e.KeyCode == Keys.D5)
-            {
-                tabControl.SelectedIndex = 4;
-            }
-            if (e.Modifiers == Keys.Control && e.KeyCode == Keys.D6)
-            {
-                tabControl.SelectedIndex = 5;
-            }
-            if (e.Modifiers == Keys.Control && e.KeyCode == Keys.D7)
-            {
-                tabControl.SelectedIndex = 6;
-            }
-            if (e.Modifiers == Keys.Control && e.KeyCode == Keys.D8)
-            {
-                tabControl.SelectedIndex = 7;
-            }
-            if (e.Modifiers == Keys.Control && e.KeyCode == Keys.D9)
-            {
-                tabControl.SelectedIndex = 8;
-            }
+            if (e.Modifiers != Keys.Control)
+                return;
+
+            int index = -1;
+            if (e.KeyCode == Keys.D1) index = 0;
+            else if (e.KeyCode == Keys.D2) index = 1;
+            else if (e.KeyCode == Keys.D3) index = 2;
+            else if (e.KeyCode == Keys.D4) index = 3;
+            else if (e.KeyCode == Keys.D5) index = 4;
+            else if (e.KeyCode == Keys.D6) index = 5;
+            else if (e.KeyCode == Keys.D7) index = 6;
+            else if (e.KeyCode == Keys.D8) index = 7;
+            else if (e.KeyCode == Keys.D9) index = 8;
+
+            if (index >= 0)
+                NavigateTo(index);
         }
 
         #endregion TabControl

@@ -51,6 +51,176 @@ namespace ControlExs
         private QQControlState _state = QQControlState.Normal;
         private Font _defaultFont = new Font("微软雅黑", 9);
 
+        #region 现代扁平主题
+
+        /// <summary>
+        /// 由宿主程序打开：把「仿 QQ 贴图」渲染切换成现代扁平渲染。
+        /// 不开则完全保持原样，对其它引用 ControlExs 的项目零影响。
+        /// </summary>
+        public static bool FlatTheme = false;
+
+        /// <summary>
+        /// 按钮变体。对应参考项目 buttonVariants 里的 variant 维度：
+        /// 区别一律只能从这几个里选，不允许在调用处现写颜色 —— 这是视觉一致性的根本保证。
+        /// </summary>
+        public enum ButtonKind
+        {
+            Outline = 0,       // 默认：白底 + 细边框
+            Secondary = 1,     // 浅灰实心
+            Ghost = 2,         // 无底无框，仅悬停/按下有底色
+            Destructive = 3,   // 危险操作：红底白字
+            Accent = 4         // 主操作：强调色实心
+        }
+
+        /// <summary>当前变体。旧的 Accent 布尔仍兼容，会被当作 Accent 变体。</summary>
+        public ButtonKind Kind = ButtonKind.Outline;
+
+        /// <summary>强调色按钮（主操作，例如「压制」「开始」）。</summary>
+        public bool Accent = false;
+
+        public static Color FlatBack = Color.White;
+        public static Color FlatBorder = ColorTranslator.FromHtml("#CAD4DD");
+        public static Color FlatHover = ColorTranslator.FromHtml("#F2F5F9");
+        public static Color FlatDown = ColorTranslator.FromHtml("#E7EDF3");
+        public static Color FlatText = ColorTranslator.FromHtml("#222A35");
+        public static Color FlatDisabledBack = ColorTranslator.FromHtml("#F5F7FA");
+        public static Color FlatDisabledText = ColorTranslator.FromHtml("#9AA4B2");
+        public static Color FlatAccent = ColorTranslator.FromHtml("#34B282");
+        public static Color FlatAccentHover = ColorTranslator.FromHtml("#2EA674");
+        public static Color FlatAccentDown = ColorTranslator.FromHtml("#28996B");
+        public static Color FlatAccentText = Color.White;
+
+        // variant 矩阵里其余几种变体的配色（由 Theme 注入，也可直接用这里的默认值）
+        public static Color FlatSecondary = ColorTranslator.FromHtml("#E2EAF1");
+        public static Color FlatSecondaryHover = ColorTranslator.FromHtml("#D6E1EA");
+        public static Color FlatSecondaryDown = ColorTranslator.FromHtml("#CAD8E4");
+        public static Color FlatDestructive = ColorTranslator.FromHtml("#E04C4C");
+        public static Color FlatDestructiveHover = ColorTranslator.FromHtml("#CF4040");
+
+        public static int FlatRadius = 8;
+
+        private void DrawFlat(Graphics g)
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+            Rectangle r = ClientRectangle;
+            r.Width -= 1;
+            r.Height -= 1;
+            if (r.Width <= 2 || r.Height <= 2)
+                return;
+
+            if (!Enabled)
+                _state = QQControlState.Disabled;
+
+            bool accent = (Accent || Kind == ButtonKind.Accent) && Enabled;
+            Color fill;
+            Color border = Color.Empty;
+            Color fore;
+
+            if (!Enabled)
+            {
+                fill = FlatDisabledBack;
+                fore = FlatDisabledText;
+            }
+            else if (accent)
+            {
+                switch (_state)
+                {
+                    case QQControlState.Highlight: fill = FlatAccentHover; break;
+                    case QQControlState.Down: fill = FlatAccentDown; break;
+                    default: fill = FlatAccent; break;
+                }
+                fore = FlatAccentText;
+            }
+            else if (Kind == ButtonKind.Secondary)
+            {
+                switch (_state)
+                {
+                    case QQControlState.Highlight: fill = FlatSecondaryHover; break;
+                    case QQControlState.Down: fill = FlatSecondaryDown; break;
+                    default: fill = FlatSecondary; break;
+                }
+                fore = FlatText;
+            }
+            else if (Kind == ButtonKind.Ghost)
+            {
+                // 无底无框：只有悬停 / 按下 / 聚焦时才出现底色
+                switch (_state)
+                {
+                    case QQControlState.Highlight: fill = FlatHover; break;
+                    case QQControlState.Down: fill = FlatDown; break;
+                    case QQControlState.Focus: fill = FlatHover; break;
+                    default: fill = Color.Empty; break;
+                }
+                fore = FlatText;
+            }
+            else if (Kind == ButtonKind.Destructive)
+            {
+                fill = _state == QQControlState.Highlight ? FlatDestructiveHover : FlatDestructive;
+                fore = Color.White;
+            }
+            else
+            {
+                switch (_state)
+                {
+                    case QQControlState.Highlight: fill = FlatHover; border = FlatBorder; break;
+                    case QQControlState.Down: fill = FlatDown; border = FlatBorder; break;
+                    case QQControlState.Focus: fill = FlatBack; border = FlatAccent; break;
+                    default: fill = FlatBack; border = FlatBorder; break;
+                }
+                fore = ForeColor == Color.Empty ? FlatText : ForeColor;
+                if (fore == Color.Empty || fore.A == 0) fore = FlatText;
+            }
+
+            int d = FlatRadius * 2;
+            if (d > r.Width) d = r.Width;
+            if (d > r.Height) d = r.Height;
+
+            // 半径必须按高度等比推算并夹紧（参考项目里 h-9 配 rounded-lg、h-11 配 rounded-xl，约 22%~27%）。
+            // 之前是固定半径：矮按钮会被同心弧包成胶囊/椭圆，同一屏里和方形控件混在一起非常难看。
+            int radius = (int)Math.Round(r.Height * 0.25);
+            if (radius > FlatRadius) radius = FlatRadius;
+            if (radius < 3) radius = 3;
+            if (radius * 2 > r.Height) radius = Math.Max(2, r.Height / 2 - 1);
+            if (radius * 2 > r.Width) radius = Math.Max(2, r.Width / 2 - 1);
+            d = radius * 2;
+            using (GraphicsPath path = new GraphicsPath())
+            {
+                if (d >= 4)
+                {
+                    path.AddArc(r.X, r.Y, d, d, 180, 90);
+                    path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+                    path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+                    path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+                    path.CloseFigure();
+                }
+                else
+                {
+                    path.AddRectangle(r);
+                }
+
+                using (SolidBrush b = new SolidBrush(fill))
+                    g.FillPath(b, path);
+
+                if (border != Color.Empty)
+                {
+                    using (Pen p = new Pen(border))
+                        g.DrawPath(p, path);
+                }
+            }
+
+            TextRenderer.DrawText(
+                g,
+                Text,
+                Font,
+                r,
+                fore,
+                GetTextFormatFlags(TextAlign, RightToLeft == RightToLeft.Yes));
+        }
+
+        #endregion
+
         #endregion
 
         #region Constructor
@@ -60,6 +230,7 @@ namespace ControlExs
             SetStyles();
             this.Font = _defaultFont;
             this.Size = new Size(68, 23);
+            this.Cursor = Cursors.Hand;
         }
 
         #endregion
@@ -156,6 +327,13 @@ namespace ControlExs
         protected override void OnPaint(PaintEventArgs pevent)
         {
             base.OnPaint(pevent);
+
+            if (FlatTheme)
+            {
+                DrawFlat(pevent.Graphics);
+                return;
+            }
+
             Graphics g = pevent.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.InterpolationMode = InterpolationMode.HighQualityBilinear;

@@ -73,18 +73,84 @@ namespace ControlExs
 
         #endregion
 
+        #region 扁平现代化皮肤（由宿主 Theme 打开）
+
+        /// <summary>
+        /// 打开后改用扁平圆形风格自绘：不再使用旧版 QQ 的圆点位图，
+        /// 也不绘制系统原生圆点，视觉上和整体 UI 统一。
+        /// </summary>
+        public static bool FlatTheme = false;
+
+        public static Color FlatAccent = Color.FromArgb(0x34, 0xB2, 0x82);
+        public static Color FlatBorder = Color.FromArgb(0xCA, 0xD4, 0xDD);
+        public static Color FlatText = Color.FromArgb(0x22, 0x2A, 0x35);
+        public static Color FlatDisabledBorder = Color.FromArgb(0xD8, 0xDF, 0xE7);
+        public static Color FlatDisabledBack = Color.FromArgb(0xF0, 0xF3, 0xF7);
+        public static Color FlatDisabledCheck = Color.FromArgb(0xC3, 0xCD, 0xD8);
+
+        private void DrawFlat(Graphics g)
+        {
+            Rectangle circleRect, textRect;
+            CalculateRect(out circleRect, out textRect);
+
+            bool hot = (_state == QQControlState.Highlight || _state == QQControlState.Down);
+
+            Rectangle circle = new Rectangle(
+                circleRect.X, circleRect.Y, CheckRectWidth, CheckRectWidth);
+
+            Color border = Enabled
+                ? (hot ? FlatAccent : FlatBorder)
+                : FlatDisabledBorder;
+
+            Color back;
+            if (!Enabled)
+                back = Checked ? FlatDisabledCheck : FlatDisabledBack;
+            else
+                back = Checked ? FlatAccent : Color.White;
+
+            using (SolidBrush brush = new SolidBrush(back))
+                g.FillEllipse(brush, circle);
+
+            if (!Checked)
+            {
+                using (Pen pen = new Pen(border, 1.4f))
+                    g.DrawEllipse(pen, circle);
+            }
+            else if (Enabled)
+            {
+                // 选中态：实心圆 + 白色圆心，比旧版位图干净得多
+                int inset = Math.Max(3, circle.Width / 4);
+                Rectangle dot = circle;
+                dot.Inflate(-inset, -inset);
+                using (SolidBrush brush = new SolidBrush(Color.White))
+                    g.FillEllipse(brush, dot);
+            }
+
+            TextRenderer.DrawText(
+                g,
+                Text,
+                Font,
+                textRect,
+                Enabled ? FlatText : SystemColors.GrayText,
+                GetTextFormatFlags(TextAlign, RightToLeft == RightToLeft.Yes));
+        }
+
+        #endregion
+
         #region Override
 
         protected override void OnMouseEnter(EventArgs e)
         {
             _state = QQControlState.Highlight;
             base.OnMouseEnter(e);
+            if (FlatTheme) Invalidate();
         }
 
         protected override void OnMouseLeave(EventArgs e)
         {
             _state = QQControlState.Normal;
             base.OnMouseLeave(e);
+            if (FlatTheme) Invalidate();
         }
 
         protected override void OnMouseDown(MouseEventArgs mevent)
@@ -94,6 +160,7 @@ namespace ControlExs
                 _state = QQControlState.Down;
             }
             base.OnMouseDown(mevent);
+            if (FlatTheme) Invalidate();
         }
 
         protected override void OnMouseUp(MouseEventArgs mevent)
@@ -110,6 +177,7 @@ namespace ControlExs
                 }
             }
             base.OnMouseUp(mevent);
+            if (FlatTheme) Invalidate();
         }
 
         protected override void OnEnabledChanged(EventArgs e)
@@ -127,20 +195,29 @@ namespace ControlExs
 
         protected override void OnPaint(PaintEventArgs pevent)
         {
-            base.OnPaint(pevent);
-            base.OnPaintBackground(pevent);
-
             Graphics g = pevent.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-
-            Rectangle circleRect, textRect;
-            CalculateRect(out circleRect, out textRect);
 
             if (Enabled == false)
             {
                 _state = QQControlState.Disabled;
             }
+
+            if (FlatTheme)
+            {
+                // 扁平皮肤完全自绘：不调用 base.OnPaint，
+                // 否则系统会先把原生圆点画出来，看起来就很"违和"。
+                base.OnPaintBackground(pevent);
+                DrawFlat(g);
+                return;
+            }
+
+            base.OnPaint(pevent);
+            base.OnPaintBackground(pevent);
+
+            Rectangle circleRect, textRect;
+            CalculateRect(out circleRect, out textRect);
 
             switch (_state)
             {

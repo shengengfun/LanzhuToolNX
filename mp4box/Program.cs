@@ -34,6 +34,9 @@ namespace mp4box
             [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
             public static extern bool SetDllDirectory(string path);
 
+            [DllImport("user32.dll")]
+            public static extern bool SetProcessDPIAware();
+
             public static void SetUnmanagedDllDirectory()
             {
                 string path = Path.Combine(Application.StartupPath, "tools");
@@ -105,6 +108,13 @@ namespace mp4box
 
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+
+            // 必须尽早声明 DPI 感知（清单里也已声明，这里只是双保险）：
+            // 否则在 125% / 150% 缩放的屏幕上，整个窗口会被系统位图拉伸 →
+            // 文字发虚、线条对不齐。
+            try { NativeMethods.SetProcessDPIAware(); }
+            catch { }
+
             NativeMethods.SetUnmanagedDllDirectory();
             AddToolDirectoriesToPath();
 

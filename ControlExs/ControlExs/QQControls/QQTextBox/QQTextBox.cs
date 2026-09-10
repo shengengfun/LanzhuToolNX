@@ -248,13 +248,17 @@ namespace ControlExs
 
             if (Text.Length == 0 && !string.IsNullOrEmpty(EmptyTextTip) && !Focused)
             {
-                TextRenderer.DrawText(g, EmptyTextTip, Font, ClientRectangle, EmptyTextTipColor, GetTextFormatFlags(TextAlign, RightToLeft == RightToLeft.Yes));
+                // 加 EndEllipsis：提示文字比控件宽时用省略号收尾，
+                // 不再出现“一句话被硬裁一半”的显示不全。
+                TextFormatFlags tipFlags = GetTextFormatFlags(TextAlign, RightToLeft == RightToLeft.Yes)
+                    | TextFormatFlags.EndEllipsis;
+                TextRenderer.DrawText(g, EmptyTextTip, Font, ClientRectangle, EmptyTextTipColor, tipFlags);
             }
         }
 
         private void DrawNormalTextBox(Graphics g)
         {
-            using (Pen borderPen = new Pen(Color.LightGray))
+            using (Pen borderPen = new Pen(ColorTable.QQBorderColor))
             {
                 g.DrawRectangle(
                     borderPen,

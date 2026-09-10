@@ -54,4 +54,15 @@
         />
     </dependentAssembly>
   </dependency>
+  <!--
+    声明 DPI 感知。
+    如果不声明，在有缩放（例如 125%）的屏幕上，Windows 会把整个窗口
+    按位图拉伸 → 字体模糊、线条对不齐。这是“看着糊”的根因。
+  -->
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+    </windowsSettings>
+  </application>
 </asmv1:assembly>

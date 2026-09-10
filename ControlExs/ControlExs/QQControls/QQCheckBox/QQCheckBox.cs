@@ -73,18 +73,112 @@ namespace ControlExs
 
         #endregion
 
+        #region 扁平现代化皮肤（由宿主 Theme 打开）
+
+        /// <summary>
+        /// 打开后改用扁平圆角风格自绘：不再使用旧版 QQ 的勾选位图，
+        /// 也不绘制系统原生方块，视觉上和整体 UI 统一。
+        /// </summary>
+        public static bool FlatTheme = false;
+
+        public static Color FlatAccent = Color.FromArgb(0x34, 0xB2, 0x82);
+        public static Color FlatBorder = Color.FromArgb(0xCA, 0xD4, 0xDD);
+        public static Color FlatText = Color.FromArgb(0x22, 0x2A, 0x35);
+        public static Color FlatDisabledBorder = Color.FromArgb(0xD8, 0xDF, 0xE7);
+        public static Color FlatDisabledBack = Color.FromArgb(0xF0, 0xF3, 0xF7);
+        public static Color FlatDisabledCheck = Color.FromArgb(0xC3, 0xCD, 0xD8);
+
+        private static GraphicsPath FlatRoundRect(Rectangle r, int radius)
+        {
+            GraphicsPath path = new GraphicsPath();
+            int d = radius * 2;
+            if (d > r.Width) d = r.Width;
+            if (d > r.Height) d = r.Height;
+            if (d <= 0) d = 1;
+
+            path.AddArc(r.X, r.Y, d, d, 180, 90);
+            path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+            path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+            path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        private void DrawFlat(Graphics g)
+        {
+            Rectangle checkRect, textRect;
+            CalculateRect(out checkRect, out textRect);
+
+            bool hot = (_state == QQControlState.Highlight || _state == QQControlState.Down);
+
+            Rectangle box = new Rectangle(
+                checkRect.X, checkRect.Y, CheckRectWidth, CheckRectWidth);
+
+            Color border = Enabled
+                ? (hot ? FlatAccent : FlatBorder)
+                : FlatDisabledBorder;
+
+            Color back;
+            if (!Enabled)
+                back = Checked ? FlatDisabledCheck : FlatDisabledBack;
+            else
+                back = Checked ? FlatAccent : Color.White;
+
+            using (GraphicsPath path = FlatRoundRect(box, 4))
+            {
+                using (SolidBrush brush = new SolidBrush(back))
+                    g.FillPath(brush, path);
+
+                // 勾选时不用描边，未勾选时才需要保留轮廓
+                if (!Checked)
+                {
+                    using (Pen pen = new Pen(border, 1.4f))
+                        g.DrawPath(pen, path);
+                }
+            }
+
+            if (Checked)
+            {
+                float x = box.X, y = box.Y, w = box.Width, h = box.Height;
+                using (Pen pen = new Pen(Color.White, 2f))
+                {
+                    pen.StartCap = LineCap.Round;
+                    pen.EndCap = LineCap.Round;
+                    pen.LineJoin = LineJoin.Round;
+                    g.DrawLines(pen, new PointF[]
+                    {
+                        new PointF(x + w * 0.24f, y + h * 0.52f),
+                        new PointF(x + w * 0.43f, y + h * 0.72f),
+                        new PointF(x + w * 0.78f, y + h * 0.29f)
+                    });
+                }
+            }
+
+            TextRenderer.DrawText(
+                g,
+                Text,
+                Font,
+                textRect,
+                Enabled ? FlatText : SystemColors.GrayText,
+                GetTextFormatFlags(TextAlign, RightToLeft == RightToLeft.Yes));
+        }
+
+        #endregion
+
         #region Override
 
         protected override void OnMouseEnter(EventArgs e)
         {
             _state = QQControlState.Highlight;
             base.OnMouseEnter(e);
+            if (FlatTheme) Invalidate();
         }
 
         protected override void OnMouseLeave(EventArgs e)
         {
             _state = QQControlState.Normal;
             base.OnMouseLeave(e);
+            if (FlatTheme) Invalidate();
         }
 
         protected override void OnMouseDown(MouseEventArgs mevent)
@@ -94,6 +188,7 @@ namespace ControlExs
                 _state = QQControlState.Down;
             }
             base.OnMouseDown(mevent);
+            if (FlatTheme) Invalidate();
         }
 
         protected override void OnMouseUp(MouseEventArgs mevent)
@@ -110,6 +205,7 @@ namespace ControlExs
                 }
             }
             base.OnMouseUp(mevent);
+            if (FlatTheme) Invalidate();
         }
 
         protected override void OnEnabledChanged(EventArgs e)
@@ -127,20 +223,29 @@ namespace ControlExs
 
         protected override void OnPaint(PaintEventArgs pevent)
         {
-            base.OnPaint(pevent);
-            base.OnPaintBackground(pevent);
-
             Graphics g = pevent.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-
-            Rectangle checkRect, textRect;
-            CalculateRect(out checkRect, out textRect);
 
             if (Enabled == false)
             {
                 _state = QQControlState.Disabled;
             }
+
+            if (FlatTheme)
+            {
+                // 扁平皮肤完全自绘：不调用 base.OnPaint，
+                // 否则系统会先把原生方块画出来，看起来就很"违和"。
+                base.OnPaintBackground(pevent);
+                DrawFlat(g);
+                return;
+            }
+
+            base.OnPaint(pevent);
+            base.OnPaintBackground(pevent);
+
+            Rectangle checkRect, textRect;
+            CalculateRect(out checkRect, out textRect);
 
             switch (_state)
             {
