@@ -23,7 +23,7 @@ export function HelpPage() {
                 <span className="font-bold text-primary">岚珠</span>
                 <span className="font-semibold text-foreground">工具箱</span>
               </span>
-              <Badge>v1.3.0</Badge>
+              <Badge>v1.3.2</Badge>
             </div>
             <div className="mt-0.5 text-[12px] text-muted-foreground">
               动画 / 番剧压制的瑞士军刀：压制、转码、剪切、封装、抽取一条龙。
@@ -126,7 +126,7 @@ export function HelpPage() {
         <span className="flex-1" />
         <Row className="gap-1.5">
           <Github className="size-3.5 text-muted-foreground" />
-          <span className="text-[11.5px] text-muted-foreground">shengengfun/lanzhutool</span>
+          <span className="text-[11.5px] text-muted-foreground">shengengfun/LanzhuToolNX</span>
           <ExternalLink className="size-3 text-muted-foreground" />
         </Row>
       </Card>
