@@ -58,8 +58,9 @@
 
 ## 下载
 
-到 [Releases](../../releases/latest) 下载 `岚珠工具箱_x.y.z_x64-setup.exe`，双击安装即可
+到 [Releases](../../releases/latest) 下载 `LanzhuToolNX_x.y.z_x64-setup.exe`，双击安装即可
 （默认装到 `%LOCALAPPDATA%\lanzhutool`，不需要管理员权限；开始菜单与控制面板里显示为「岚珠工具箱」）。
+安装包文件名用 ASCII 是为了下载/命令行场景不出乱码，程序本身与安装目录照旧。
 
 - 系统要求：**Windows 10 / 11 x64** + WebView2 运行时（Win11 与较新的 Win10 已自带）
 - ⚠️ 安装包**不含 `tools/`**（FFmpeg 一套就 640MB）。首次运行到
