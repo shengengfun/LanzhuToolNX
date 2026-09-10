@@ -59,6 +59,13 @@ export function HelpPage() {
       <GroupCard title="更新日志">
         <div className="space-y-3 text-[12px] leading-relaxed">
           <Changelog
+            version="v1.3.2"
+            items={[
+              '安装目录改成纯英文的 %LOCALAPPDATA%\\lanzhutool（开始菜单和控制面板里依旧是「岚珠工具箱」）',
+              '安装包套上了 app logo：setup.exe 的图标、安装向导顶栏的小图',
+            ]}
+          />
+          <Changelog
             version="v1.3.1"
             items={[
               '配色选择重做：选中色块内打对号（对号颜色按底色亮度现算），去掉「强调色」标签',
