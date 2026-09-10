@@ -1,0 +1,224 @@
+/*
+ * 与 src-tauri/src/spec.rs 一一对应的类型。
+ * 后端按这份 spec 拼出和原版完全一致的命令行。
+ */
+
+export type VideoPresetKind = 'H264' | 'HEVC' | 'MOV' | 'FLV'
+
+/** 「压制格式」下拉项，与原版 x264ExeComboBox 完全一致。 */
+export const VIDEO_FORMATS = [
+  'H.264 8bit',
+  'H.264 10bit',
+  'H.264 12bit',
+  'HEVC 8bit',
+  'HEVC 10bit',
+  'HEVC 12bit',
+  'MOV',
+  'FLV',
+] as const
+
+export const AUDIO_ENCODERS = ['NeroAAC', 'QAAC', 'WAV', 'ALAC', 'FLAC', 'FDKAAC', 'AC3'] as const
+export const AUDIO_BITRATES = ['64', '96', '128', '160', '192', '256', '320'] as const
+
+export const AUDIO_MODES = ['压制音频', '不压制音频', '复制音频', '外部音频'] as const
+export const DEMUXERS = ['auto', 'ffmpeg', 'mkvextract', 'MP4Box'] as const
+export const CONTAINERS = ['mp4', 'mkv', 'mov', 'flv'] as const
+
+/** GPU 后端；原版靠下拉项里的 (AMF)/(QSV) 字样识别。 */
+export type GpuKind = 'nvenc' | 'qsv' | 'amf'
+
+export interface VideoSpec {
+  input: string
+  output: string
+  subtitle: string
+  /** 「压制格式」文本，如 "H.264 8bit" / "HEVC 10bit" */
+  format: string
+
+  /** 0=自定义参数 1=质量(CRF) 2=二遍码率 */
+  mode: 0 | 1 | 2
+  crf: number
+  bitrate: number
+  customParams: string
+  extraParams: string
+
+  width: number
+  height: number
+  maintainResolution: boolean
+
+  seek: number
+  frames: number
+  threads: string
+  priority: number
+
+  useGpu: boolean
+  hybrid: boolean
+  gpuKind: GpuKind
+  gpuIndex: number
+
+  audioMode: number
+  audioParams: string
+  container: string
+  autoShutdown: boolean
+}
+
+export interface AudioSpec {
+  input: string
+  output: string
+  /** AudioEncoderComboBox 的索引：0 NeroAAC / 1 QAAC / 2 WAV / 3 ALAC / 4 FLAC / 5 FDKAAC / 6 AC3 */
+  encoder: number
+  /** true = 用码率，false = 用自定义参数 */
+  useBitrate: boolean
+  bitrate: string
+  customParams: string
+}
+
+export interface MuxSpec {
+  video: string
+  audio: string
+  output: string
+  /** 裸流时的帧率，"auto" 或数字 */
+  fps: string
+  /** 裸流时的像素宽高比，如 "32:27" */
+  par: string
+}
+
+export interface ExtractSpec {
+  input: string
+  output: string
+  /** video=抽视频轨 / audio=抽音频轨 / track=抽指定流 / mkv=mkvextract 抽轨 */
+  kind: 'video' | 'audio' | 'track' | 'mkv'
+  streamIndex: number
+}
+
+export interface AvsSpec {
+  /** AVS 脚本全文 */
+  script: string
+  /** 脚本写到哪个文件；后端先落盘再把它当输入喂给 ffmpeg */
+  scriptPath: string
+  /** 压制参数，和普通视频完全一致 */
+  spec: VideoSpec
+}
+
+export interface RunRequest {
+  /** 已拼好的完整命令行；每行一条 */
+  commands: string
+  /** 工作目录，工具所在处 */
+  cwd: string
+  /** 同时执行的任务数，用于进度条分母 */
+  workCount: number
+}
+
+export interface MediaInfo {
+  path: string
+  exists: boolean
+  container: string
+  durationSec: number
+  sizeBytes: number
+  bitrate: number
+  video: {
+    codec: string
+    width: number
+    height: number
+    fps: number
+    pixFmt: string
+    bitDepth: number
+  } | null
+  audio: {
+    codec: string
+    channels: number
+    sampleRate: number
+    bitrate: number
+  } | null
+  raw: string
+}
+
+export interface AppSettings {
+  toolsDir: string
+  outputDir: string
+  language: string
+  /** 下载工具时依次尝试的镜像前缀；末尾留空串表示回落直连 */
+  mirrors: string[]
+
+  // ---- 编码默认值 ----
+  threadsDefault: string
+  defaultFormat: string
+
+  // ---- 日志 ----
+  autoScrollLog: boolean
+  maxLogLines: number
+
+  // ---- 外观 ----
+  /** 'light' | 'dark' | 'system' */
+  theme: string
+  /** 强调色预设 id，见 lib/appearance.ts */
+  accent: string
+  /** 自定义强调色 #rrggbb，非空时优先 */
+  accentCustom: string
+  /** 自定义背景图绝对路径 */
+  background: string
+  /** 界面缩放 0.9 / 1 / 1.1 */
+  uiScale: number
+
+  // ---- 托盘 / 通知 ----
+  closeToTray: boolean
+  minimizeToTray: boolean
+  notifyOnFinish: boolean
+  /** 底栏显示 CPU/GPU/内存占用 */
+  showMonitor: boolean
+
+  // ---- 最近打开 ----
+  recentFiles: string[]
+}
+
+/** 粗剪（视频/音频通用）；时间单位是秒，end<=start 表示到结尾。 */
+
+export interface TrimSpec {
+  input: string
+  output: string
+  start: number
+  end: number
+  /** 只留音频 */
+  audioOnly: boolean
+  /** true = 重编码（切点精确），false = 流复制（秒切无损） */
+  reencode: boolean
+  params: string
+  audioBitrate: number
+}
+
+/** 系统性能快照（后端 sysmon 每 2 秒刷新）。 */
+export interface SysStats {
+  cpu: number
+  memUsed: number
+  memTotal: number
+  gpu: number
+  gpuName: string
+  gpuMemUsed: number
+  gpuMemTotal: number
+  /** 本工具拉起的编码类进程数 */
+  procs: number
+}
+
+/** 一个可下载的工具包（后端清单里的一项）。 */
+export interface ToolPackage {
+  id: string
+  name: string
+  desc: string
+  required: boolean
+  approxMb: number
+  installed: boolean
+  missing: string[]
+  dest: string
+  /** false 表示官网没有稳定直链（如 NeroAAC），只能用离线包导入 */
+  downloadable: boolean
+}
+
+export interface ToolProgress {
+  pkg: string
+  /** fetch | download | extract | done | error | start | export */
+  phase: string
+  message: string
+  got: number
+  total: number
+  percent: number
+  speedKbps: number
+}

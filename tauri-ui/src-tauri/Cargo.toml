@@ -1,0 +1,38 @@
+[package]
+name = "lanzhutool"
+version = "1.1.0"
+description = "岚珠工具箱 - 视频压制工具箱"
+authors = ["shengengfun"]
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# tray-icon: 托盘图标；image-png: 解码打包进来的 PNG 图标（托盘/默认窗口图标都要）
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+# 压制/转码动辄几十分钟，完成后弹个系统通知比什么都实用
+tauri-plugin-notification = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 工具在线下载：ureq 阻塞式 + 流式读，够用且依赖少（不拖 reqwest/tokio 进来）
+ureq = { version = "2", features = ["tls"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+# MKVToolNix 官方只发 .7z，所以必须能解 7z
+sevenz-rust = "0.6"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+# thin LTO + 4 个 codegen 单元：体积和完整 LTO 差不多，但构建快 3~4 倍。
+# 用 `lto = true` + `codegen-units = 1` 打一次要十几分钟，日常不划算。
+codegen-units = 4
+lto = "thin"
+opt-level = "s"
+panic = "abort"
+strip = true

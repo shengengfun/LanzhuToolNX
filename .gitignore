@@ -167,3 +167,14 @@ lanzhutool-1.0.1/
 # Downloadable toolchain & SDK (regenerate via update_tools.ps1 / manifest)
 tools/
 _sdk/
+
+# =========================
+# Tauri 前端 / 后端构建产物
+# =========================
+node_modules/
+tauri-ui/dist/
+tauri-ui/.vite/
+# 无斜杠前缀 => 匹配任意层级的 target/（带斜杠的写法只会锚定到仓库根）
+target/
+# tauri-build 每次启动都会重新生成
+tauri-ui/src-tauri/gen/schemas/

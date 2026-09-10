@@ -1,0 +1,198 @@
+@import 'tailwindcss';
+
+/*
+ * 设计令牌层 —— 与参考项目 ShiorikoTrans 的 desktop/src/globals.css 一一对应。
+ *
+ * Tailwind v4 的写法：在 @theme 里把 CSS 变量注册成"工具类来源"，
+ * 之后就能直接用 bg-primary / text-muted-foreground / rounded-xl / shadow-sm 这些类。
+ * 改主题只需要改这一处变量。
+ */
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-sans: 'Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI', -apple-system,
+    BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'Cascadia Mono', Consolas, 'Courier New', ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --shadow-2xs: 0 1px 1px hsl(211 60% 11% / 0.06);
+  --shadow-xs: 0 1px 2px hsl(211 60% 11% / 0.08);
+  --shadow-sm: 0 4px 12px hsl(220 18% 16% / 0.05);
+  --shadow-md: 0 12px 28px hsl(220 18% 16% / 0.09);
+  --shadow-lg: 0 16px 36px hsl(220 10% 20% / 0.12);
+}
+
+:root {
+  --radius: 0.75rem;
+
+  --background: hsl(210 34% 96%);
+  --foreground: hsl(215 22% 17%);
+
+  --card: hsl(0 0% 100% / 0.95);
+  --card-foreground: hsl(215 22% 17%);
+
+  --popover: hsl(0 0% 100% / 0.98);
+  --popover-foreground: hsl(215 22% 17%);
+
+  --primary: hsl(157 55% 45%);
+  --primary-foreground: hsl(0 0% 100%);
+
+  --secondary: hsl(206 28% 92%);
+  --secondary-foreground: hsl(214 20% 24%);
+
+  --muted: hsl(207 24% 93%);
+  --muted-foreground: hsl(214 12% 44%);
+
+  --accent: hsl(206 44% 90%);
+  --accent-foreground: hsl(214 20% 24%);
+
+  --destructive: hsl(0 78% 57%);
+  --destructive-foreground: hsl(210 40% 98%);
+
+  --success: hsl(154 64% 38%);
+  --success-foreground: hsl(154 100% 96%);
+
+  --border: hsl(208 22% 83%);
+  --input: hsl(208 22% 83%);
+  --ring: hsl(157 55% 42%);
+
+  /* 背景：竖向渐变 + 左上蓝光 + 右上紫光（参考项目的观感） */
+  --backdrop: radial-gradient(at 0% 0%, hsl(210 60% 88% / 0.9) 0px, transparent 55%),
+    radial-gradient(at 100% 0%, hsl(265 45% 92% / 0.75) 0px, transparent 50%),
+    linear-gradient(to bottom, hsl(210 34% 97%), hsl(210 30% 93%));
+
+  /* 用户自定义背景图 + 可读性遮罩（由 lib/appearance.ts 在运行时写入） */
+  --app-bg-image: none;
+  --app-bg-overlay: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * 暗色主题
+ * 只换令牌，不动任何组件 —— 组件里一个颜色字面量都没有，所以暗色天然一致。
+ * ------------------------------------------------------------------ */
+.dark {
+  --background: hsl(220 20% 10%);
+  --foreground: hsl(210 20% 92%);
+
+  --card: hsl(220 17% 14% / 0.94);
+  --card-foreground: hsl(210 20% 92%);
+
+  --popover: hsl(220 18% 15% / 0.98);
+  --popover-foreground: hsl(210 20% 92%);
+
+  --secondary: hsl(219 16% 22%);
+  --secondary-foreground: hsl(210 20% 90%);
+
+  --muted: hsl(219 16% 20%);
+  --muted-foreground: hsl(215 14% 66%);
+
+  --accent: hsl(219 18% 24%);
+  --accent-foreground: hsl(210 20% 92%);
+
+  --destructive: hsl(0 62% 52%);
+  --destructive-foreground: hsl(0 0% 100%);
+
+  --success: hsl(154 58% 52%);
+  --success-foreground: hsl(154 100% 96%);
+
+  --border: hsl(219 15% 26%);
+  --input: hsl(219 15% 28%);
+
+  --backdrop: radial-gradient(at 0% 0%, hsl(210 60% 26% / 0.55) 0px, transparent 55%),
+    radial-gradient(at 100% 0%, hsl(265 40% 28% / 0.45) 0px, transparent 50%),
+    linear-gradient(to bottom, hsl(220 20% 13%), hsl(220 22% 8%));
+}
+
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+
+  /* 只有输入区和日志区允许选中文本，其余地方保持"桌面应用"的手感 */
+  input,
+  textarea,
+  [data-selectable] {
+    user-select: text;
+  }
+
+  /* 细滚动条，和参考项目的 scroll-area 一致 */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+@utility app-backdrop {
+  /* 三层，从下往上：渐变底色 → 自定义背景图 → 可读性遮罩。
+     没有自定义背景时后两层都是 none，等于只剩渐变。 */
+  background-image: var(--app-bg-overlay), var(--app-bg-image), var(--backdrop);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
