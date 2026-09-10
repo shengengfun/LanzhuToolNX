@@ -177,6 +177,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notifyOnFinish: true,
   showMonitor: true,
   recentFiles: [],
+  showSplash: true,
+  memeUrl: '',
 }
 
 /** 最近文件列表上限。 */
@@ -199,6 +201,9 @@ interface AppCtx {
   log: LogLine[]
   appendLog: (text: string, stream?: LogLine['stream']) => void
   clearLog: () => void
+
+  /** 设置已加载完（启动画面靠它决定什么时候可以退场） */
+  ready: boolean
 
   running: boolean
   paused: boolean
@@ -231,6 +236,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [runningCmd, setRunningCmd] = React.useState('')
   const [toast, setToast] = React.useState<ToastState | null>(null)
   const [scheme, setScheme] = React.useState<'light' | 'dark'>('light')
+  const [ready, setReady] = React.useState(false)
 
   // 事件回调里想拿到"最新"的设置/视频，但又不想因为依赖它们而重挂监听
   const settingsRef = React.useRef(settings)
@@ -300,6 +306,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .loadSettings()
       .then(setSettings)
       .catch(() => void 0)
+      .finally(() => setReady(true))
   }, [])
 
   // 订阅运行事件
@@ -482,6 +489,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     log,
     appendLog,
     clearLog,
+    ready,
     running: runId != null,
     paused,
     progress,

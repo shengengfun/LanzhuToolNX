@@ -14,25 +14,36 @@ export interface Hsl {
 
 export interface AccentPreset {
   id: string
+  /** 角色名（虹ヶ咲学園スクールアイドル同好会） */
   name: string
-  /** 色板预览用的十六进制（仅用于 UI 上的小圆点） */
+  /** 该角色的主题色，HTML 色号 */
   color: string
-  light: Hsl
-  dark: Hsl
 }
 
+/** 默认配色：钟岚珠 */
 export const DEFAULT_ACCENT = 'lanzhu'
 
+/**
+ * 虹咲 13 人配色。
+ *
+ * 这些是角色应援色，直接当强调色用 —— 所以**不能**预设固定的
+ * `--primary-foreground`：中须霞的黄、钟岚珠的粉、高咲侑的黑，
+ * 白字黑字完全是两个答案，得按亮度实时算（见 `prefersDarkText`）。
+ */
 export const ACCENT_PRESETS: AccentPreset[] = [
-  // 默认色 = 原版岚珠工具箱的绿，选它时**不覆盖**变量，完全跟随 globals.css
-  { id: 'lanzhu', name: '岚珠绿', color: '#37b484', light: { h: 157, s: 55, l: 45 }, dark: { h: 158, s: 62, l: 54 } },
-  { id: 'blue', name: '晴空蓝', color: '#1677d3', light: { h: 205, s: 74, l: 43 }, dark: { h: 212, s: 95, l: 58 } },
-  { id: 'sky', name: '天青', color: '#0284c7', light: { h: 199, s: 89, l: 39 }, dark: { h: 199, s: 92, l: 60 } },
-  { id: 'teal', name: '松石', color: '#0d9488', light: { h: 173, s: 80, l: 32 }, dark: { h: 172, s: 70, l: 52 } },
-  { id: 'violet', name: '紫罗兰', color: '#7c3aed', light: { h: 262, s: 83, l: 58 }, dark: { h: 258, s: 90, l: 68 } },
-  { id: 'rose', name: '莓红', color: '#e11d48', light: { h: 348, s: 77, l: 48 }, dark: { h: 348, s: 90, l: 62 } },
-  { id: 'amber', name: '琥珀', color: '#d97706', light: { h: 32, s: 95, l: 44 }, dark: { h: 38, s: 92, l: 56 } },
-  { id: 'graphite', name: '石墨', color: '#475569', light: { h: 215, s: 25, l: 35 }, dark: { h: 213, s: 20, l: 65 } },
+  { id: 'ayumu', name: '上原步梦', color: '#ED7D95' },
+  { id: 'kasumi', name: '中须霞', color: '#E7D600' },
+  { id: 'shizuku', name: '樱坂雫', color: '#01B7ED' },
+  { id: 'karin', name: '朝香果林', color: '#485EC6' },
+  { id: 'ai', name: '宫下爱', color: '#FF5800' },
+  { id: 'kanata', name: '近江彼方', color: '#A664A0' },
+  { id: 'setsuna', name: '优木雪菜', color: '#D81C2F' },
+  { id: 'emma', name: '艾玛·维尔德', color: '#84C36E' },
+  { id: 'rina', name: '天王寺璃奈', color: '#9CA5B9' },
+  { id: 'shioriko', name: '三船栞子', color: '#37B484' },
+  { id: 'mia', name: '米娅·泰勒', color: '#A9A898' },
+  { id: 'lanzhu', name: '钟岚珠', color: '#F69992' },
+  { id: 'yu', name: '高咲侑', color: '#1D1D1D' },
 ]
 
 /** `#rgb` / `#rrggbb` → HSL；非法输入返回 null。 */
@@ -67,32 +78,53 @@ export function hexToHsl(hex: string): Hsl | null {
 
 const hsl = (c: Hsl) => `hsl(${c.h} ${c.s}% ${c.l}%)`
 
+/** HSL → 感知亮度（0-1）。用来决定强调色上该用黑字还是白字。 */
+function luma(c: Hsl): number {
+  const s = c.s / 100
+  const l = c.l / 100
+  const k = (n: number) => (n + c.h / 30) % 12
+  const a = s * Math.min(l, 1 - l)
+  const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)))
+  return 0.2126 * f(0) + 0.7152 * f(8) + 0.0722 * f(4)
+}
+
+/** 亮底用深字、暗底用白字 —— 中须霞的黄配白字是看不见的。 */
+function prefersDarkText(c: Hsl) {
+  return luma(c) > 0.62
+}
+
+const DARK_INK = 'hsl(220 22% 14%)'
+
 /**
  * 承载"主色"的全部变量。改这些就能让按钮、焦点环、进度条、选中态一起换色 ——
  * 因为它们本来就都引用同一批令牌。
  */
-const ACCENT_VARS = ['--primary', '--ring', '--success', '--accent-foreground'] as const
+const ACCENT_VARS = ['--primary', '--ring'] as const
 
-/** 把强调色应用到 <html>；custom 非空时优先于预设。 */
+/**
+ * 把强调色应用到 `<html>`：`customHex` 非空时优先于预设。
+ *
+ * 暗色下会把颜色提亮一点，否则深底上会糊成一团。
+ */
 export function applyAccent(presetId: string, customHex: string, dark: boolean) {
   const el = document.documentElement
   for (const v of ACCENT_VARS) el.style.removeProperty(v)
+  el.style.removeProperty('--primary-foreground')
 
-  let resolved: Hsl | null = null
   const custom = customHex.trim()
-  if (custom) {
-    const h = hexToHsl(custom)
-    // 暗色下把强调色提亮一点，否则深底上糊成一团
-    if (h) resolved = dark ? { h: h.h, s: Math.min(100, h.s + 12), l: Math.min(70, h.l + 20) } : h
-  }
-  if (!resolved && presetId !== DEFAULT_ACCENT) {
-    const p = ACCENT_PRESETS.find((x) => x.id === presetId)
-    if (p) resolved = dark ? p.dark : p.light
-  }
-  if (!resolved) return // 默认色：直接用 globals.css 里的值
+  const hex = custom || ACCENT_PRESETS.find((p) => p.id === presetId)?.color || ''
+  if (!hex) return
 
-  const c = hsl(resolved)
-  for (const v of ACCENT_VARS) el.style.setProperty(v, c)
+  const base = hexToHsl(hex)
+  if (!base) return
+
+  const c: Hsl = dark
+    ? { h: base.h, s: Math.min(100, base.s + 8), l: Math.min(70, base.l + 16) }
+    : base
+
+  const value = hsl(c)
+  for (const v of ACCENT_VARS) el.style.setProperty(v, value)
+  el.style.setProperty('--primary-foreground', prefersDarkText(c) ? DARK_INK : 'hsl(0 0% 100%)')
 }
 
 /** 主题：light / dark / system。返回最终生效的色板（供状态栏等显示）。 */

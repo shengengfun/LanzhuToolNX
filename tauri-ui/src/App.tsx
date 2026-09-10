@@ -26,11 +26,16 @@ export default function App() {
 
 function Shell() {
   const [page, setPage] = React.useState<PageId>('video')
-  const { running } = useApp()
+  const [booted, setBooted] = React.useState(false)
+  const { running, ready, settings } = useApp()
+
+  // 启动画面：等设置加载完再展示（否则"跳过启动画面"的用户会看到它一闪而过），
+  // 展示约 1.3 秒后自己淡出。
+  const showSplash = ready && settings.showSplash && !booted
 
   return (
     <div className="app-backdrop flex h-full flex-col">
-      <TitleBar title="岚珠工具箱" version="1.1.0" />
+      <TitleBar title="岚珠工具箱" version="1.2.0" />
 
       <ToolsBanner onGoSettings={() => setPage('settings')} />
 
@@ -62,6 +67,46 @@ function Shell() {
 
       <StatusBar />
       <Toast />
+      {showSplash && <Splash onDone={() => setBooted(true)} />}
+    </div>
+  )
+}
+
+/**
+ * 启动画面。
+ *
+ * 不做成独立小窗口，是因为真正耗时的只有"WebView 起来 + 设置读出来"，
+ * 这段时间主窗口本来就是白的；在上面盖一层反而是最干净的做法
+ * （也不会多出一个需要管生命周期的窗口）。
+ */
+function Splash({ onDone }: { onDone: () => void }) {
+  const [fading, setFading] = React.useState(false)
+
+  React.useEffect(() => {
+    const t1 = window.setTimeout(() => setFading(true), 1000)
+    const t2 = window.setTimeout(onDone, 1400)
+    return () => {
+      window.clearTimeout(t1)
+      window.clearTimeout(t2)
+    }
+  }, [onDone])
+
+  return (
+    <div
+      className={`app-backdrop fixed inset-0 z-[200] flex flex-col items-center justify-center gap-4 transition-opacity duration-500 ${
+        fading ? 'opacity-0' : 'opacity-100'
+      }`}
+    >
+      <span className="flex size-20 items-center justify-center rounded-3xl bg-primary text-4xl font-bold text-primary-foreground shadow-lg">
+        岚
+      </span>
+      <div className="text-center">
+        <div className="text-[16px] font-semibold tracking-wide">岚珠工具箱</div>
+        <div className="mt-1 text-[12px] text-muted-foreground">v1.2.0 · 正在准备工具链</div>
+      </div>
+      <div className="h-1 w-44 overflow-hidden rounded-full bg-muted">
+        <div className="size-full w-1/2 animate-pulse rounded-full bg-primary" />
+      </div>
     </div>
   )
 }

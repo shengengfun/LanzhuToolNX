@@ -555,7 +555,14 @@ pub fn video_pipeline(
     bat
 }
 
-/// 镜像原版 `btnmux_Click`：ffmpeg 直封装，裸流时补帧率和 PAR。
+/// 重新封装。
+///
+/// 在原版 `btnmux_Click`（视频 + 单音轨）基础上把音轨做成**列表**：
+/// 可以一次挂多条外部音轨，按列表顺序映射成多条输出音轨；
+/// `keep_source_audio = false` 且挂了音轨时，就是原版 `MuxReplaceAudioButton`
+/// 的「替换音频」语义。
+///
+/// `-c:a:N` 里的 `N` 是**输出里的音频流序号**，所以源音轨占 0 时要跟着往后数。
 pub fn mux(spec: &MuxSpec, tools: &str) -> String {
     let mut sb = String::new();
     sb.push_str(&quote(&tool(tools, "ffmpeg.exe")));
@@ -568,14 +575,17 @@ pub fn mux(spec: &MuxSpec, tools: &str) -> String {
     }
 
     sb.push_str(&format!(" -i \"{}\"", spec.video));
-    if !spec.audio.is_empty() {
-        sb.push_str(&format!(" -i \"{}\"", spec.audio));
+
+    let audios: Vec<&String> = spec
+        .audios
+        .iter()
+        .filter(|a| !a.trim().is_empty())
+        .collect();
+    for a in &audios {
+        sb.push_str(&format!(" -i \"{}\"", a));
     }
 
     sb.push_str(" -map 0:v -c:v copy");
-    if !spec.audio.is_empty() {
-        sb.push_str(" -map 1:a -c:a copy");
-    }
 
     if is_raw && !spec.par.is_empty() && spec.par != "1:1" {
         if lower.ends_with(".hevc") {
@@ -585,7 +595,86 @@ pub fn mux(spec: &MuxSpec, tools: &str) -> String {
         }
     }
 
-    sb.push_str(&format!(" -sn -y \"{}\"", spec.output));
+    let mut index: usize = 0;
+    if spec.keep_source_audio {
+        // `?` 让"源文件本来就没音轨"也不至于整个失败
+        sb.push_str(" -map 0:a? -c:a copy");
+        index += 1;
+    }
+    for (i, _) in audios.iter().enumerate() {
+        // 输入 0 是视频，所以外部音轨从 1 开始
+        sb.push_str(&format!(" -map {}:a:0 -c:a:{} copy", i + 1, index));
+        index += 1;
+    }
+
+    // 既不留源音轨、也没挂外部音轨 → 明确做成无声视频，
+    // 否则 ffmpeg 会自己挑一条音轨塞进去（原版没这句，是个隐患）
+    if !spec.keep_source_audio && audios.is_empty() {
+        sb.push_str(" -an");
+    }
+
+    let fmt = spec.format.trim().to_lowercase();
+    if !fmt.is_empty() {
+        sb.push_str(&format!(" -f {}", fmt));
+    }
+
+    sb.push_str(" -map_metadata 0 -sn -y \"");
+    sb.push_str(&spec.output);
+    sb.push('"');
+    sb.push_str("\r\n");
+    sb
+}
+
+/// 转换后的输出路径：`<目录>\<原名>.<目标扩展名>`。
+/// `output_dir` 留空则写在源文件旁边。
+pub fn convert_output(input: &str, format: &str, output_dir: &str) -> String {
+    let p = std::path::Path::new(input);
+    let stem = p
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".into());
+    let ext = format.trim().trim_start_matches('.');
+    let dir = if output_dir.trim().is_empty() {
+        p.parent()
+            .map(|d| d.to_path_buf())
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+    } else {
+        std::path::PathBuf::from(output_dir)
+    };
+    dir.join(format!("{}.{}", stem, ext))
+        .to_string_lossy()
+        .to_string()
+}
+
+/// 批量封装转换的一条命令（原版 `btnBatchMP4_Click` 的循环体）。
+///
+/// 原版的规则：源音轨不是 AAC、且目标容器不是 mkv 时，顺手把音频转成 AAC
+/// （`-strict -2` 是给 ffmpeg 内置 aac 编码器用的），否则整条流直接复制。
+pub fn convert_container_cmd(
+    tools: &str,
+    input: &str,
+    output: &str,
+    format: &str,
+    aac_encoder: &str,
+    transcode_audio: bool,
+) -> String {
+    let ffmpeg = quote(&tool(tools, "ffmpeg.exe"));
+    let mut sb = format!("{} -y -i \"{}\" -c:v copy", ffmpeg, input);
+    if transcode_audio {
+        let enc = if aac_encoder.trim().is_empty() {
+            "aac"
+        } else {
+            aac_encoder.trim()
+        };
+        sb.push_str(&format!(" -c:a {} -strict -2", enc));
+    } else {
+        sb.push_str(" -c copy");
+    }
+    let f = format.trim().to_lowercase();
+    if !f.is_empty() {
+        sb.push_str(&format!(" -f {}", f));
+    }
+    sb.push_str(&format!(" \"{}\"", output));
     sb.push_str("\r\n");
     sb
 }
@@ -921,35 +1010,126 @@ subtitles='C\\:/sub dir/a.ass',hwupload_cuda\""
 
     #[test]
     fn mux_raw_stream_adds_fps_and_par() {
-        let spec = crate::spec::MuxSpec {
+        let spec = MuxSpec {
             video: "C:\\v.h264".into(),
-            audio: "C:\\a.ac3".into(),
+            audios: vec!["C:\\a.ac3".into()],
             output: "C:\\o.mp4".into(),
             fps: "23.976".into(),
             par: "32:27".into(),
+            ..Default::default()
         };
         let c = mux(&spec, T);
         assert_eq!(
             c,
             "\"ffmpeg.exe\" -r 23.976 -i \"C:\\v.h264\" -i \"C:\\a.ac3\" \
--map 0:v -c:v copy -map 1:a -c:a copy \
--bsf:v h264_metadata=sample_aspect_ratio=32:27 -sn -y \"C:\\o.mp4\"\r\n"
+-map 0:v -c:v copy -bsf:v h264_metadata=sample_aspect_ratio=32:27 \
+-map 0:a? -c:a copy -map 1:a:0 -c:a:1 copy -f mp4 -map_metadata 0 -sn -y \"C:\\o.mp4\"\r\n"
         );
     }
 
     #[test]
     fn mux_skips_raw_only_options_for_mp4() {
-        let spec = crate::spec::MuxSpec {
+        let spec = MuxSpec {
             video: "v.mp4".into(),
-            audio: String::new(),
             output: "o.mp4".into(),
             fps: "60".into(),
             par: "32:27".into(),
+            ..Default::default()
         };
         let c = mux(&spec, T);
         assert!(!c.contains("-r 60"), "非裸流不该加 -r: {}", c);
-        assert!(!c.contains("metadata"), "非裸流不该加 bsf: {}", c);
-        assert!(!c.contains("-map 1:a"), "没有音频就不该映射: {}", c);
+        assert!(!c.contains("sample_aspect_ratio"), "非裸流不该加 bsf: {}", c);
+        // 没挂外部音轨但保留源音轨 → 仍要映射源音轨
+        assert!(c.contains(" -map 0:a? -c:a copy"), "{}", c);
+        assert!(!c.contains("-map 1:"), "没挂音轨就不该映射第二条输入: {}", c);
+    }
+
+    /// 多音轨：按挂载顺序映射，`-c:a:N` 的序号要跟着源音轨往后数。
+    #[test]
+    fn mux_multi_track_numbers_streams_in_order() {
+        let spec = MuxSpec {
+            video: "v.mkv".into(),
+            audios: vec!["jp.flac".into(), "cn.ac3".into(), "en.aac".into()],
+            output: "o.mkv".into(),
+            format: "mkv".into(),
+            ..Default::default()
+        };
+        let c = mux(&spec, T);
+        assert!(c.contains(" -i \"jp.flac\" -i \"cn.ac3\" -i \"en.aac\""), "{}", c);
+        assert!(c.contains(" -map 1:a:0 -c:a:1 copy"), "{}", c);
+        assert!(c.contains(" -map 2:a:0 -c:a:2 copy"), "{}", c);
+        assert!(c.contains(" -map 3:a:0 -c:a:3 copy"), "{}", c);
+        assert!(c.contains(" -f mkv"), "{}", c);
+    }
+
+    /// 替换音频：不保留源音轨，挂的音轨从第 0 条开始编号。
+    #[test]
+    fn mux_replace_audio_drops_source_track() {
+        let spec = MuxSpec {
+            video: "v.mp4".into(),
+            audios: vec!["new.aac".into()],
+            output: "o.mp4".into(),
+            keep_source_audio: false,
+            ..Default::default()
+        };
+        let c = mux(&spec, T);
+        assert!(!c.contains("-map 0:a"), "替换音频时不该保留源音轨: {}", c);
+        assert!(c.contains(" -map 1:a:0 -c:a:0 copy"), "{}", c);
+    }
+
+    /// 既不留源音轨、也不挂外部音轨 → 明确静音，不能让 ffmpeg 自己挑。
+    #[test]
+    fn mux_without_any_audio_is_explicitly_silent() {
+        let spec = MuxSpec {
+            video: "v.mp4".into(),
+            output: "o.mp4".into(),
+            keep_source_audio: false,
+            ..Default::default()
+        };
+        let c = mux(&spec, T);
+        assert!(c.contains(" -an"), "{}", c);
+        assert!(!c.contains("a?"), "{}", c);
+    }
+
+    /// 空字符串音轨条目要被忽略（界面里删空的行不该产生 `-i ""`）。
+    #[test]
+    fn mux_ignores_blank_audio_entries() {
+        let spec = MuxSpec {
+            video: "v.mp4".into(),
+            audios: vec![String::new(), "  ".into(), "a.ac3".into()],
+            output: "o.mp4".into(),
+            keep_source_audio: false,
+            ..Default::default()
+        };
+        let c = mux(&spec, T);
+        assert_eq!(c.matches(" -i ").count(), 2, "只有视频 + 1 条音轨: {}", c);
+        assert!(c.contains(" -map 1:a:0 -c:a:0 copy"), "{}", c);
+    }
+
+    #[test]
+    fn convert_output_keeps_name_and_swaps_extension() {
+        assert_eq!(
+            convert_output("C:\\dir\\a.mp4", "mkv", ""),
+            "C:\\dir\\a.mkv"
+        );
+        assert_eq!(
+            convert_output("C:\\dir\\a.mp4", ".flv", "D:\\out"),
+            "D:\\out\\a.flv"
+        );
+    }
+
+    #[test]
+    fn convert_container_uses_copy_or_aac() {
+        let copy = convert_container_cmd(T, "in.flv", "out.mp4", "mp4", "aac", false);
+        assert_eq!(
+            copy,
+            "\"ffmpeg.exe\" -y -i \"in.flv\" -c:v copy -c copy -f mp4 \"out.mp4\"\r\n"
+        );
+        let conv = convert_container_cmd(T, "in.flv", "out.mp4", "mp4", "libfdk_aac", true);
+        assert_eq!(
+            conv,
+            "\"ffmpeg.exe\" -y -i \"in.flv\" -c:v copy -c:a libfdk_aac -strict -2 -f mp4 \"out.mp4\"\r\n"
+        );
     }
 
     #[test]

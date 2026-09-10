@@ -58,3 +58,40 @@ export function PathRow({
     </Field>
   )
 }
+
+/**
+ * 页内页签（分段按钮）。
+ *
+ * 「封装 / 封装转换 / 抽取」「转码 / 波形粗剪」都用它 ——
+ * 比再塞一个 TabControl 轻，也不必让每个面板都去做滚动适配。
+ */
+export function SegTab({
+  active,
+  onClick,
+  icon,
+  label,
+  hint,
+}: {
+  active: boolean
+  onClick: () => void
+  icon?: React.ReactNode
+  label: string
+  hint?: string
+}) {
+  return (
+    <button
+      type="button"
+      title={hint}
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-[12.5px] font-semibold transition-all',
+        active
+          ? 'border-primary/40 bg-primary/10 text-primary shadow-2xs'
+          : 'border-border/60 bg-card/60 text-muted-foreground hover:bg-accent/50',
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  )
+}

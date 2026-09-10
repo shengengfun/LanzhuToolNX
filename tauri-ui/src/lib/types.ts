@@ -74,13 +74,44 @@ export interface AudioSpec {
 
 export interface MuxSpec {
   video: string
-  audio: string
+  /** 外部音频文件（可以有多个，按顺序映射成多条音轨） */
+  audios: string[]
   output: string
   /** 裸流时的帧率，"auto" 或数字 */
   fps: string
   /** 裸流时的像素宽高比，如 "32:27" */
   par: string
+  /** 是否保留源文件自带的音轨（关掉=用外部音频替掉源音轨） */
+  keepSourceAudio: boolean
+  /** 输出容器（mp4/mkv/mov/flv/avi/f4v） */
+  format: string
 }
+
+/** 批量封装 / 容器转换（原版「封装转换」）。 */
+export interface BatchMuxSpec {
+  inputs: string[]
+  /** 目标容器：mp4 / mkv / mov / flv / avi / f4v */
+  format: string
+  /** 音频不是 AAC 且目标不是 mkv 时，用哪个 AAC 编码器转码 */
+  aacEncoder: string
+  /** 输出目录；留空则写在源文件旁边 */
+  outputDir: string
+}
+
+/** 一条烂梗。 */
+export interface Meme {
+  text: string
+  /** 实际取到内容的来源 */
+  source: string
+  /** true = 网站没连上，用的是内置文案 */
+  fallback: boolean
+}
+
+/** 目标容器列表（原版 MuxFormatComboBox 的六个选项）。 */
+export const MUX_FORMATS = ['mp4', 'mkv', 'mov', 'flv', 'avi', 'f4v'] as const
+
+/** AAC 编码器（原版 MuxAacEncoderComboBox）。 */
+export const AAC_ENCODERS = ['aac', 'libfdk_aac', 'libfaac'] as const
 
 export interface ExtractSpec {
   input: string
@@ -168,6 +199,12 @@ export interface AppSettings {
 
   // ---- 最近打开 ----
   recentFiles: string[]
+
+  // ---- 启动画面 / 彩蛋 ----
+  /** 启动时显示 splash；关掉就直接进主界面 */
+  showSplash: boolean
+  /** 烂梗来源 URL；留空用内置候选 */
+  memeUrl: string
 }
 
 /** 粗剪（视频/音频通用）；时间单位是秒，end<=start 表示到结尾。 */

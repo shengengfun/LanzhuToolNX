@@ -15,7 +15,7 @@ import { PathRow } from '~/components/common'
 import { ToolsFetch } from '~/components/ToolsFetch'
 import { useApp, pickFile, pickFolder } from '~/state'
 import * as api from '~/lib/api'
-import { ACCENT_PRESETS } from '~/lib/appearance'
+import { ACCENT_PRESETS, accentHex } from '~/lib/appearance'
 import { VIDEO_FORMATS } from '~/lib/types'
 import { cn } from '~/lib/utils'
 
@@ -40,6 +40,50 @@ const THEME_LABEL: Record<string, string> = {
   light: '亮色',
   dark: '暗色',
   system: '跟随系统',
+}
+
+/**
+ * 直接填 HTML 色号的输入框。
+ *
+ * 输入过程中不校验（不然打一半就被吞了），失焦或回车时才判断：
+ * 合法（#rgb / #rrggbb）就提交，非法就退回原值。
+ */
+function HexInput({
+  value,
+  fallback,
+  onCommit,
+}: {
+  value: string
+  /** 输入框为空时展示的占位色号（= 当前配色），让用户知道默认是什么 */
+  fallback: string
+  onCommit: (v: string) => void
+}) {
+  const [text, setText] = React.useState(value)
+  React.useEffect(() => setText(value), [value])
+
+  const commit = () => {
+    const t = text.trim()
+    if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(t)) {
+      onCommit(t.toUpperCase())
+    } else if (!t) {
+      onCommit('')
+    } else {
+      setText(value) // 非法输入：退回原值，别把设置改坏
+    }
+  }
+
+  return (
+    <input
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === 'Enter' && commit()}
+      spellCheck={false}
+      placeholder={fallback}
+      title="填 HTML 色号，回车生效"
+      className="h-7 w-[104px] rounded-lg border border-input/60 bg-muted/40 px-2 font-mono text-[12px] uppercase transition-colors focus-visible:border-primary focus-visible:bg-card focus-visible:outline-none"
+    />
+  )
 }
 
 export function SettingsPage() {
@@ -104,30 +148,24 @@ export function SettingsPage() {
         </div>
       </GroupCard>
 
-      {/* ---------- 压制默认值 ---------- */}
-      <GroupCard title="压制默认值">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-          <Field label="压制格式" labelWidth={64}>
+      {/* ---------- 默认值（压制 + 日志合并成一行，省掉大片留白） ---------- */}
+      <GroupCard title="默认值">
+        <div className="grid grid-cols-4 gap-x-3 gap-y-2">
+          <Field label="格式" labelWidth={44}>
             <Select
               value={settings.defaultFormat}
               onValueChange={(v) => patchSettings({ defaultFormat: v })}
               options={VIDEO_FORMATS}
             />
           </Field>
-          <Field label="线程数" labelWidth={64}>
+          <Field label="线程" labelWidth={44}>
             <Select
               value={settings.threadsDefault}
               onValueChange={(v) => patchSettings({ threadsDefault: v })}
               options={THREADS}
             />
           </Field>
-        </div>
-      </GroupCard>
-
-      {/* ---------- 日志 ---------- */}
-      <GroupCard title="日志">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-          <Field label="行数上限" labelWidth={64}>
+          <Field label="日志行数" labelWidth={56}>
             <Input
               type="number"
               min={200}
@@ -136,7 +174,7 @@ export function SettingsPage() {
               onChange={(e) => patchSettings({ maxLogLines: Number(e.target.value) || 4000 })}
             />
           </Field>
-          <Field label="自动滚动" labelWidth={64}>
+          <Field label="自动滚动" labelWidth={56}>
             <Select
               value={settings.autoScrollLog ? '开' : '关'}
               onValueChange={(v) => patchSettings({ autoScrollLog: v === '开' })}
@@ -149,8 +187,8 @@ export function SettingsPage() {
       {/* ---------- 外观 ---------- */}
       <GroupCard title="外观">
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-            <Field label="主题" labelWidth={64}>
+          <div className="grid grid-cols-3 gap-x-3 gap-y-2">
+            <Field label="主题" labelWidth={44}>
               <Select
                 value={THEME_LABEL[settings.theme] ?? '跟随系统'}
                 onValueChange={(v) =>
@@ -159,63 +197,91 @@ export function SettingsPage() {
                 options={Object.values(THEME_LABEL)}
               />
             </Field>
-            <Field label="界面缩放" labelWidth={64}>
+            <Field label="缩放" labelWidth={44}>
               <Select
                 value={`${Math.round((settings.uiScale || 1) * 100)}%`}
                 onValueChange={(v) => patchSettings({ uiScale: Number(v.replace('%', '')) / 100 })}
                 options={['85%', '90%', '100%', '110%']}
               />
             </Field>
+            <Field label="启动画面" labelWidth={56}>
+              <Select
+                value={settings.showSplash ? '显示' : '跳过'}
+                onValueChange={(v) => patchSettings({ showSplash: v === '显示' })}
+                options={['显示', '跳过']}
+              />
+            </Field>
           </div>
 
           <Field label="强调色" labelWidth={64} align="start">
-            <div className="flex flex-wrap items-center gap-2">
-              {ACCENT_PRESETS.map((p) => {
-                const active = !settings.accentCustom && settings.accent === p.id
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    title={p.name}
-                    aria-label={p.name}
-                    onClick={() => patchSettings({ accent: p.id, accentCustom: '' })}
-                    className={cn(
-                      'size-7 rounded-full border-2 transition-transform hover:scale-110',
-                      active
-                        ? 'border-foreground ring-2 ring-foreground/20'
-                        : 'border-border/60 hover:border-foreground/40',
-                    )}
-                    style={{ backgroundColor: p.color }}
-                  />
-                )
-              })}
-              <label
-                title="自定义颜色"
-                className={cn(
-                  'relative flex size-7 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed transition-transform hover:scale-110',
-                  settings.accentCustom
-                    ? 'border-foreground ring-2 ring-foreground/20'
-                    : 'border-border/60 hover:border-foreground/40',
-                )}
-              >
-                <input
-                  type="color"
-                  className="absolute inset-0 size-full cursor-pointer opacity-0"
-                  value={settings.accentCustom || '#37b484'}
-                  onChange={(e) => patchSettings({ accentCustom: e.target.value })}
-                />
-                <span className="text-[12px] font-bold text-muted-foreground">#</span>
-              </label>
-              {settings.accentCustom && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7"
-                  onClick={() => patchSettings({ accentCustom: '' })}
+            <div className="space-y-2">
+              {/* 虹咲 13 人的应援色。鼠标悬停能看到是谁的颜色。 */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {ACCENT_PRESETS.map((p) => {
+                  const active = !settings.accentCustom && settings.accent === p.id
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      title={`${p.name} ${p.color}`}
+                      aria-label={p.name}
+                      onClick={() => patchSettings({ accent: p.id, accentCustom: '' })}
+                      className={cn(
+                        'flex size-7 items-center justify-center rounded-full border-2 transition-transform hover:scale-110',
+                        active
+                          ? 'border-foreground ring-2 ring-foreground/20'
+                          : 'border-border/60 hover:border-foreground/40',
+                      )}
+                      style={{ backgroundColor: p.color }}
+                    />
+                  )
+                })}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <label
+                  title="用取色器挑一个"
+                  className={cn(
+                    'relative flex size-7 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed transition-transform hover:scale-110',
+                    settings.accentCustom
+                      ? 'border-foreground ring-2 ring-foreground/20'
+                      : 'border-border/60 hover:border-foreground/40',
+                  )}
                 >
-                  清除自定义色
-                </Button>
-              )}
+                  <input
+                    type="color"
+                    className="absolute inset-0 size-full cursor-pointer opacity-0"
+                    value={settings.accentCustom || accentHex('#F69992')}
+                    onChange={(e) => patchSettings({ accentCustom: e.target.value })}
+                  />
+                  <span className="text-[12px] font-bold text-muted-foreground">#</span>
+                </label>
+
+                {/* 也可以直接填 HTML 色号 */}
+                <HexInput
+                  value={settings.accentCustom}
+                  fallback={
+                    ACCENT_PRESETS.find((p) => p.id === settings.accent)?.color ?? '#F69992'
+                  }
+                  onCommit={(v) => patchSettings({ accentCustom: v })}
+                />
+
+                {settings.accentCustom && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7"
+                    onClick={() => patchSettings({ accentCustom: '' })}
+                  >
+                    恢复默认（钟岚珠）
+                  </Button>
+                )}
+                {!settings.accentCustom && (
+                  <span className="text-[11.5px] text-muted-foreground">
+                    当前：{ACCENT_PRESETS.find((p) => p.id === settings.accent)?.name ?? '钟岚珠'}
+                  </span>
+                )}
+              </div>
             </div>
           </Field>
 
@@ -254,37 +320,30 @@ export function SettingsPage() {
       </GroupCard>
 
       {/* ---------- 窗口与提醒 ---------- */}
-      <GroupCard title="窗口与托盘">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-          <Checkbox
-            checked={settings.closeToTray}
-            onCheckedChange={(v) => patchSettings({ closeToTray: v })}
-            label="点关闭时收进托盘（不退出）"
-          />
+      <GroupCard title="窗口与提醒">
+        {/* 只留真正会用到的三项。原来那个「立即隐藏到托盘」按钮 +
+            「点关闭时收进托盘」纯属多余（前者是命令不是设置，
+            后者会让用户找不到关闭按钮），已经移除。 */}
+        <div className="grid grid-cols-3 gap-x-4 gap-y-2">
           <Checkbox
             checked={settings.minimizeToTray}
             onCheckedChange={(v) => patchSettings({ minimizeToTray: v })}
             label="最小化时收进托盘"
           />
           <Checkbox
+            checked={settings.showMonitor}
+            onCheckedChange={(v) => patchSettings({ showMonitor: v })}
+            label="底栏显示 CPU / GPU 内存"
+          />
+          <Checkbox
             checked={settings.notifyOnFinish}
             onCheckedChange={(v) => patchSettings({ notifyOnFinish: v })}
             label="任务完成时弹系统通知"
           />
-          <Checkbox
-            checked={settings.showMonitor}
-            onCheckedChange={(v) => patchSettings({ showMonitor: v })}
-            label="底栏显示 CPU / GPU / 内存"
-          />
         </div>
-        <Row className="mt-2 gap-2">
-          <Button size="sm" variant="outline" onClick={() => void api.hideToTray()}>
-            立即隐藏到托盘
-          </Button>
-          <span className="text-[11.5px] text-muted-foreground">
-            托盘图标：左键单击唤回窗口，右键出菜单。
-          </span>
-        </Row>
+        <p className="mt-2 text-[11.5px] text-muted-foreground">
+          托盘图标：左键单击唤回窗口，右键出菜单。
+        </p>
       </GroupCard>
 
       {/* ---------- 界面 ---------- */}

@@ -67,8 +67,8 @@
   --popover: hsl(0 0% 100% / 0.98);
   --popover-foreground: hsl(215 22% 17%);
 
-  --primary: hsl(157 55% 45%);
-  --primary-foreground: hsl(0 0% 100%);
+  --primary: hsl(4 85% 77%);
+  --primary-foreground: hsl(220 22% 14%);
 
   --secondary: hsl(206 28% 92%);
   --secondary-foreground: hsl(214 20% 24%);
@@ -87,7 +87,7 @@
 
   --border: hsl(208 22% 83%);
   --input: hsl(208 22% 83%);
-  --ring: hsl(157 55% 42%);
+  --ring: hsl(4 78% 62%);
 
   /* 背景：竖向渐变 + 左上蓝光 + 右上紫光（参考项目的观感） */
   --backdrop: radial-gradient(at 0% 0%, hsl(210 60% 88% / 0.9) 0px, transparent 55%),
@@ -130,6 +130,11 @@
 
   --border: hsl(219 15% 26%);
   --input: hsl(219 15% 28%);
+
+  /* 暗色下把钟岚珠的粉提亮一点 */
+  --primary: hsl(4 90% 70%);
+  --primary-foreground: hsl(220 22% 14%);
+  --ring: hsl(4 90% 70%);
 
   --backdrop: radial-gradient(at 0% 0%, hsl(210 60% 26% / 0.55) 0px, transparent 55%),
     radial-gradient(at 100% 0%, hsl(265 40% 28% / 0.45) 0px, transparent 50%),

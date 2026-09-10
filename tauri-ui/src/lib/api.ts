@@ -4,8 +4,10 @@ import type {
   AppSettings,
   AudioSpec,
   AvsSpec,
+  BatchMuxSpec,
   ExtractSpec,
   MediaInfo,
+  Meme,
   MuxSpec,
   SysStats,
   ToolPackage,
@@ -51,6 +53,17 @@ export const planVideo = (s: VideoSpec, audio: AudioSpec) =>
 export const planAudio = (s: AudioSpec) => call<string[]>('plan_audio', { spec: s }, [])
 
 export const planMux = (s: MuxSpec) => call<string[]>('plan_mux', { spec: s }, [])
+
+/** 批量封装 / 容器转换。 */
+export const planBatchMux = (s: BatchMuxSpec) => call<string[]>('plan_batch_mux', { spec: s }, [])
+
+/** 彩蛋：随机烂梗。网络不通时会自动回落内置文案。 */
+export const randomMeme = (url = '') =>
+  call<Meme>('random_meme', { url }, {
+    text: '（预览模式）别问，问就是重编码。',
+    source: '',
+    fallback: true,
+  })
 
 export const planExtract = (s: ExtractSpec) => call<string[]>('plan_extract', { spec: s }, [])
 
@@ -158,6 +171,8 @@ export const loadSettings = () =>
     notifyOnFinish: true,
     showMonitor: true,
     recentFiles: [],
+    showSplash: true,
+    memeUrl: '',
   })
 
 export const saveSettings = (s: AppSettings) =>

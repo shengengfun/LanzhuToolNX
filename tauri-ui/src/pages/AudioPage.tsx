@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Pause, Play, Plus, Square, Trash2, Waves, XCircle } from 'lucide-react'
+import { Music, Pause, Play, Plus, Square, Trash2, Waves, XCircle } from 'lucide-react'
 import {
   Button,
   Card,
@@ -13,7 +13,7 @@ import {
   Select,
   Separator,
 } from '~/components/ui'
-import { PathRow } from '~/components/common'
+import { PathRow, SegTab } from '~/components/common'
 import { RoughCut } from '~/components/RoughCut'
 import { useApp, useDropZone, pickFile, pickFiles, pickSave } from '~/state'
 import * as api from '~/lib/api'
@@ -26,6 +26,7 @@ export function AudioPage() {
   const { audio, patchAudio, running, paused, run, cancel, togglePause, notify } = useApp()
   const [batch, setBatch] = React.useState<string[]>([])
   const [busy, setBusy] = React.useState(false)
+  const [tab, setTab] = React.useState<'transcode' | 'cut'>('transcode')
 
   const encoder = AUDIO_ENCODERS[audio.encoder]
   const presets = AUDIO_PRESETS[encoder] ?? []
@@ -78,9 +79,34 @@ export function AudioPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto px-0.5 pt-1 pr-1">
-      <div className="flex min-h-0 flex-wrap gap-3">
-        <div className="flex max-w-[560px] min-h-0 min-w-[360px] flex-1 flex-col gap-3">
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      {/**
+       * 之前是把波形粗剪直接堆在转码区下面，两块内容抢高度，
+       * 在小窗口下两边都挤得很难看。改成页签后各自都有完整高度。
+       */}
+      <div className="flex shrink-0 items-center gap-1.5">
+        <SegTab
+          active={tab === 'transcode'}
+          onClick={() => setTab('transcode')}
+          icon={<Music className="size-3.5" />}
+          label="音频转码"
+          hint="整段转码 / 抽取，可以批量"
+        />
+        <SegTab
+          active={tab === 'cut'}
+          onClick={() => setTab('cut')}
+          icon={<Waves className="size-3.5" />}
+          label="波形粗剪"
+          hint="拖时间轴上的两个手柄选范围，默认流复制（秒切、无损）"
+        />
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-0.5 pt-1 pr-1">
+        {tab === 'cut' ? (
+          <RoughCut mode="audio" />
+        ) : (
+          <div className="flex min-h-0 flex-wrap gap-3">
+            <div className="flex max-w-[560px] min-h-0 min-w-[360px] flex-1 flex-col gap-3">
         <Card className="space-y-2 p-3">
           <PathRow
             label="输入"
@@ -243,23 +269,8 @@ export function AudioPage() {
           </div>
         </GroupCard>
         </div>
-      </div>
-
-      {/* ---------------- 波形粗剪 ---------------- */}
-      {/*
-        放在页面最底下：转码是"整段处理"，粗剪是"截一段"，
-        两件事都发生在同一个文件上是常态（先剪掉片头广告再转码），
-        所以干脆合并到一页，省得来回切页签。
-      */}
-      <div className="space-y-2 pt-1">
-        <div className="flex flex-wrap items-center gap-2 px-0.5">
-          <Waves className="size-3.5 text-primary" />
-          <span className="text-[13px] font-semibold">波形粗剪</span>
-          <span className="text-[11.5px] text-muted-foreground">
-            拖时间轴上的两个手柄选范围，默认流复制（秒切、无损）
-          </span>
-        </div>
-        <RoughCut mode="audio" />
+          </div>
+        )}
       </div>
     </div>
   )

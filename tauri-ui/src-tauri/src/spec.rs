@@ -98,24 +98,72 @@ impl Default for AudioSpec {
 #[serde(rename_all = "camelCase", default)]
 pub struct MuxSpec {
     pub video: String,
-    pub audio: String,
+    /// 外部音频文件（可以有多个，按顺序映射成多条音轨）
+    pub audios: Vec<String>,
     pub output: String,
     /// 裸流(.264/.h264/.hevc)时的帧率，取值 "auto" 或数字
     pub fps: String,
     /// 裸流时的像素宽高比，如 "32:27"
     pub par: String,
+    /// 是否把源文件自带的音轨也带上（关掉=用外部音频替掉源音轨）
+    #[serde(default = "d_true")]
+    pub keep_source_audio: bool,
+    /// 输出容器（mp4/mkv/mov/flv/avi/f4v），决定扩展名与 faststart
+    #[serde(default = "d_mp4")]
+    pub format: String,
+}
+
+fn d_mp4() -> String {
+    "mp4".into()
 }
 
 impl Default for MuxSpec {
     fn default() -> Self {
         Self {
             video: String::new(),
-            audio: String::new(),
+            audios: Vec::new(),
             output: String::new(),
             fps: "auto".into(),
             par: "1:1".into(),
+            keep_source_audio: true,
+            format: d_mp4(),
         }
     }
+}
+
+/// 批量封装 / 转换（原版 `btnBatchMP4_Click`）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BatchMuxSpec {
+    pub inputs: Vec<String>,
+    /// 目标容器：mp4 / mkv / mov / flv / avi / f4v
+    pub format: String,
+    /// 音频不是 AAC 且目标容器不是 mkv 时，用哪个 AAC 编码器转码
+    pub aac_encoder: String,
+    /// 输出目录；留空则写在源文件旁边
+    pub output_dir: String,
+}
+
+impl Default for BatchMuxSpec {
+    fn default() -> Self {
+        Self {
+            inputs: Vec::new(),
+            format: "mp4".into(),
+            aac_encoder: "aac".into(),
+            output_dir: String::new(),
+        }
+    }
+}
+
+/// 一条烂梗。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Meme {
+    pub text: String,
+    /// 实际取到内容的来源（空=内置兜底）
+    pub source: String,
+    /// 本次取的是内置兜底文案（网站没连上）
+    pub fallback: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -233,6 +281,14 @@ pub struct AppSettings {
     // ---- 最近打开（MediaInfo / 粗剪） ----
     #[serde(default)]
     pub recent_files: Vec<String>,
+
+    // ---- 启动画面 / 彩蛋 ----
+    /// 启动时显示 splash；关掉就直接进主界面
+    #[serde(default = "d_true")]
+    pub show_splash: bool,
+    /// 烂梗来源 URL；留空则用内置候选列表
+    #[serde(default)]
+    pub meme_url: String,
 }
 
 fn d_one() -> f64 {
@@ -260,6 +316,8 @@ impl Default for AppSettings {
             notify_on_finish: true,
             show_monitor: true,
             recent_files: Vec::new(),
+            show_splash: true,
+            meme_url: String::new(),
         }
     }
 }

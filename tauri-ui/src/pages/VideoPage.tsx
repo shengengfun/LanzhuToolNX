@@ -339,8 +339,8 @@ export function VideoPage() {
               onSelect={() => patchVideo({ mode: 0 })}
               label="自定义参数"
             />
-            <Radio checked={video.mode === 1} onSelect={() => patchVideo({ mode: 1 })} label="质量模式" />
-            <Radio checked={video.mode === 2} onSelect={() => patchVideo({ mode: 2 })} label="二遍码率" />
+            <Radio checked={video.mode === 1} onSelect={() => patchVideo({ mode: 1 })} label="CRF" />
+            <Radio checked={video.mode === 2} onSelect={() => patchVideo({ mode: 2 })} label="2PASS" />
             <span className="flex-1" />
             <Checkbox
               checked={video.autoShutdown}
@@ -350,29 +350,23 @@ export function VideoPage() {
           </Row>
 
           <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
-            {/* 自定义 / 附加参数：给高级用户的自由发挥区，直接原样拼到命令行里。
-                mode=0 时它是**唯一**的编码参数来源；mode=1/2 时它是补充
-                （留空则用后端默认的 preset）。 */}
-            <div className="col-span-2 space-y-1">
-              <span className="text-[11.5px] text-muted-foreground">
-                {video.mode === 0 ? '自定义参数（原样传给编码器）' : '附加参数（可选，覆盖内置 preset）'}
-              </span>
-              <Textarea
-                rows={2}
-                value={video.mode === 0 ? video.customParams : video.extraParams}
-                onChange={(e) =>
-                  video.mode === 0
-                    ? patchVideo({ customParams: e.target.value })
-                    : patchVideo({ extraParams: e.target.value })
-                }
-                placeholder={
-                  video.mode === 0
-                    ? '--crf 23 --preset 8 --aq-mode 2 --ref 8 --subme 10'
-                    : '留空则自动填 -preset（如 -preset 8 -tune animation）'
-                }
-                className="min-h-[46px] font-mono text-[12px]"
-              />
-            </div>
+            {/* 参数框只在「自定义参数」模式下出现：
+                CRF / 2PASS 已经各自有专门的质量值 / 码率输入框，
+                再摆一个自由文本框只会让人不知道该填哪个。 */}
+            {video.mode === 0 && (
+              <div className="col-span-2 space-y-1">
+                <span className="text-[11.5px] text-muted-foreground">
+                  自定义参数（原样传给编码器）
+                </span>
+                <Textarea
+                  rows={2}
+                  value={video.customParams}
+                  onChange={(e) => patchVideo({ customParams: e.target.value })}
+                  placeholder="--crf 23 --preset 8 --aq-mode 2 --ref 8 --subme 10"
+                  className="min-h-[46px] font-mono text-[12px]"
+                />
+              </div>
+            )}
 
             {video.mode === 1 && (
               <Field label="质量值" labelWidth={64}>

@@ -3,6 +3,7 @@
 
 mod cmd;
 mod media;
+mod meme;
 mod probe;
 mod run;
 mod settings;
@@ -597,6 +598,69 @@ fn abort_shutdown() -> Result<(), String> {
     cmd.output().map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// 彩蛋：随机烂梗。网络请求放到阻塞线程池，别把 IPC 线程占住。
+#[tauri::command(rename_all = "camelCase")]
+async fn random_meme(url: String) -> Meme {
+    tauri::async_runtime::spawn_blocking(move || meme::fetch(&url))
+        .await
+        .unwrap_or_default()
+}
+
+/// 批量封装 / 容器转换（原版 `btnBatchMP4_Click`）。
+///
+/// 目标格式和源文件相同就跳过；源音轨不是 AAC 且目标不是 mkv 时顺手转 AAC。
+#[tauri::command(rename_all = "camelCase")]
+fn plan_batch_mux(spec: BatchMuxSpec) -> Result<Vec<String>, String> {
+    let tools = tools_dir();
+    if spec.inputs.is_empty() {
+        return Err("请先添加要转换的视频".into());
+    }
+    let target = spec.format.trim().to_lowercase();
+    if target.is_empty() {
+        return Err("请选择目标容器".into());
+    }
+
+    let mut all: Vec<String> = Vec::new();
+    for input in spec.inputs.iter() {
+        if input.trim().is_empty() {
+            continue;
+        }
+        let ext = std::path::Path::new(input)
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        if ext == target {
+            continue; // 已经是目标格式
+        }
+
+        let out = cmd::convert_output(input, &target, &spec.output_dir);
+        let info = probe::probe(&tools, input);
+        let audio = info
+            .audio
+            .map(|a| a.codec.to_lowercase())
+            .unwrap_or_default();
+        // 原版规则：音轨不是 AAC 且目标不是 mkv → 转 AAC（mkv 什么都能装，不用转）
+        let transcode = !audio.is_empty() && audio != "aac" && target != "mkv";
+        all.push(
+            cmd::convert_container_cmd(
+                &tools,
+                input,
+                &out,
+                &target,
+                &spec.aac_encoder,
+                transcode,
+            )
+            .trim_end()
+            .to_string(),
+        );
+    }
+
+    if all.is_empty() {
+        return Err("这些文件已经是目标格式了，无需转换".into());
+    }
+    Ok(all)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -641,6 +705,7 @@ fn main() {
             plan_avs,
             plan_batch,
             plan_trim,
+            plan_batch_mux,
             make_waveform,
             detect_subtitle,
             media_url,
@@ -666,6 +731,7 @@ fn main() {
             system_stats,
             hide_to_tray,
             show_window,
+            random_meme,
             system_shutdown,
             abort_shutdown,
         ])
