@@ -178,3 +178,8 @@ tauri-ui/.vite/
 target/
 # tauri-build 姣忔鍚姩閮戒細閲嶆柊鐢熸垚
 tauri-ui/src-tauri/gen/schemas/
+
+# tauri icon 会顺手生成移动端图标，但这是纯桌面项目
+tauri-ui/src-tauri/icons/android/
+tauri-ui/src-tauri/icons/ios/
+
