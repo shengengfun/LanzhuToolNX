@@ -11,6 +11,8 @@ use tauri::{AppHandle, Emitter, Manager};
 pub struct RunState {
     seq: AtomicU64,
     kids: Mutex<HashMap<u64, u32>>, // run id -> pid
+    /// 当前处于暂停态的任务（托盘菜单要靠它决定是"暂停"还是"继续"）
+    paused: Mutex<std::collections::HashSet<u64>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -140,6 +142,7 @@ pub fn spawn_commands(
         {
             let st = a3.state::<RunState>();
             st.kids.lock().unwrap().remove(&id);
+            st.paused.lock().unwrap().remove(&id);
         }
 
         let _ = std::fs::remove_file(&bat);
@@ -320,6 +323,14 @@ pub fn set_paused(app: &AppHandle, id: u64, paused: bool) -> Result<(), String> 
         "run://paused",
         serde_json::json!({ "id": id, "paused": paused }),
     );
+    {
+        let mut set = state.paused.lock().unwrap();
+        if paused {
+            set.insert(id);
+        } else {
+            set.remove(&id);
+        }
+    }
 
     let tree = winproc::descendants(pid);
     for p in tree {
@@ -342,4 +353,34 @@ pub fn set_paused(app: &AppHandle, id: u64, paused: bool) -> Result<(), String> 
 #[cfg(not(windows))]
 pub fn set_paused(_app: &AppHandle, _id: u64, _paused: bool) -> Result<(), String> {
     Err("暂停功能目前只支持 Windows".into())
+}
+
+/* ------------------------------------------------------------------ *
+ * 托盘菜单用的"当前任务"操作
+ * ------------------------------------------------------------------ */
+
+/// 当前正在跑的任务 id（同时只跑一个，取最大 id 就是最新的）。
+pub fn current_id(state: &RunState) -> Option<u64> {
+    state.kids.lock().ok()?.keys().copied().max()
+}
+
+/// 托盘菜单：暂停 / 继续当前任务。
+pub fn toggle_pause_current(app: &AppHandle) {
+    let state = app.state::<RunState>();
+    let Some(id) = current_id(&state) else { return };
+    let was_paused = state.paused.lock().map(|s| s.contains(&id)).unwrap_or(false);
+    let _ = set_paused(app, id, !was_paused);
+}
+
+/// 托盘菜单：终止当前任务。
+pub fn cancel_current(app: &AppHandle) {
+    let state = app.state::<RunState>();
+    if let Some(id) = current_id(&state) {
+        let _ = cancel(app, id);
+    }
+}
+
+/// 前端想知道"现在有没有任务在跑"时用。
+pub fn is_running(app: &AppHandle) -> bool {
+    current_id(&app.state::<RunState>()).is_some()
 }

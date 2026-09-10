@@ -7,6 +7,7 @@ import { StatusBar } from './components/StatusBar'
 import { Button } from './components/ui'
 import { AppProvider, useApp } from './state'
 import * as api from './lib/api'
+import logo from './assets/logo.png'
 import { VideoPage } from './pages/VideoPage'
 import { AudioPage } from './pages/AudioPage'
 import { MuxExtractPage } from './pages/MuxPage'
@@ -35,7 +36,7 @@ function Shell() {
 
   return (
     <div className="app-backdrop flex h-full flex-col">
-      <TitleBar title="岚珠工具箱" version="1.2.0" />
+      <TitleBar title="岚珠工具箱" version="1.3.0" />
 
       <ToolsBanner onGoSettings={() => setPage('settings')} />
 
@@ -97,12 +98,18 @@ function Splash({ onDone }: { onDone: () => void }) {
         fading ? 'opacity-0' : 'opacity-100'
       }`}
     >
-      <span className="flex size-20 items-center justify-center rounded-3xl bg-primary text-4xl font-bold text-primary-foreground shadow-lg">
-        岚
-      </span>
+      <img
+        src={logo}
+        alt="岚珠工具箱"
+        draggable={false}
+        className="size-20 rounded-3xl object-cover shadow-lg ring-1 ring-border/60"
+      />
       <div className="text-center">
-        <div className="text-[16px] font-semibold tracking-wide">岚珠工具箱</div>
-        <div className="mt-1 text-[12px] text-muted-foreground">v1.2.0 · 正在准备工具链</div>
+        <div className="text-[16px] tracking-wide">
+          <span className="font-bold text-primary">岚珠</span>
+          <span className="font-semibold text-foreground">工具箱</span>
+        </div>
+        <div className="mt-1 text-[12px] text-muted-foreground">v1.3.0 · 正在准备工具链</div>
       </div>
       <div className="h-1 w-44 overflow-hidden rounded-full bg-muted">
         <div className="size-full w-1/2 animate-pulse rounded-full bg-primary" />

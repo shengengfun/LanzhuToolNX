@@ -9,12 +9,22 @@ pub struct VideoSpec {
     /// 压制格式文本，取值见 VIDEO_FORMATS（"H.264 8bit" / "HEVC 10bit" ...）
     pub format: String,
 
-    /// 0 = 自定义参数，1 = 质量(CRF/CQ)，2 = 二遍码率
+    /// 0 = 自定义参数，1 = 质量(CRF/CQ)，2 = 二遍码率，3 = 压制预设
     pub mode: u32,
     pub crf: f64,
     pub bitrate: f64,
     pub custom_params: String,
     pub extra_params: String,
+
+    // ---- 压制预设（mode = 3 时生效）----
+    /// 预设名（只用于界面/日志）
+    pub preset_name: String,
+    /// 编码器，如 "libx264" / "prores_ks" / "libaom-av1"
+    pub preset_encoder: String,
+    /// 编码参数，原样拼到 `-c:v <encoder>` 后面
+    pub preset_params: String,
+    /// 容器扩展名（不带点），如 "mov" / "mkv"
+    pub preset_container: String,
 
     pub width: i64,
     pub height: i64,
@@ -50,6 +60,10 @@ impl Default for VideoSpec {
             bitrate: 800.0,
             custom_params: String::new(),
             extra_params: String::new(),
+            preset_name: String::new(),
+            preset_encoder: String::new(),
+            preset_params: String::new(),
+            preset_container: String::new(),
             width: 0,
             height: 0,
             maintain_resolution: false,
@@ -214,6 +228,10 @@ fn d_max_log() -> u32 {
     4000
 }
 
+fn d_log_level() -> String {
+    "all".into()
+}
+
 fn d_format() -> String {
     "H.264 8bit".into()
 }
@@ -228,6 +246,35 @@ fn d_theme() -> String {
 
 fn d_accent() -> String {
     "lanzhu".into()
+}
+
+/// 一条压制预设。
+///
+/// 内置预设写在前端 `lib/encodePresets.ts` 里（改起来快、不用重编译），
+/// 用户自建的存进设置文件 —— 所以这里是 serde 全字段的镜像结构。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EncodePreset {
+    pub id: String,
+    pub name: String,
+    /// 分类：常用 / 网络 / 中间格式 / 存档 / 设备
+    pub group: String,
+    pub desc: String,
+    /// 容器扩展名（不带点）：mp4 / mov / mkv / avi
+    pub container: String,
+    /// 编码器：libx264 / libx265 / prores_ks / dnxhd / libaom-av1 / libsvtav1 …
+    pub encoder: String,
+    /// 编码参数，原样拼到 `-c:v <encoder>` 后面
+    pub params: String,
+    /// 目标分辨率；0 = 保持原分辨率
+    pub width: i64,
+    pub height: i64,
+    /// 目标帧率；0 = 不改变
+    pub fps: f64,
+    /// 推荐用：源高度 ≥ 这个值时才推荐（避免把小片子放大）
+    pub min_source_height: i64,
+    /// true = 内置预设（不可删除）
+    pub builtin: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -250,6 +297,9 @@ pub struct AppSettings {
     pub auto_scroll_log: bool,
     #[serde(default = "d_max_log")]
     pub max_log_lines: u32,
+    /// 记录范围：all | warn | error
+    #[serde(default = "d_log_level")]
+    pub log_level: String,
 
     // ---- 外观 ----
     /// "light" | "dark" | "system"
@@ -289,6 +339,10 @@ pub struct AppSettings {
     /// 烂梗来源 URL；留空则用内置候选列表
     #[serde(default)]
     pub meme_url: String,
+
+    // ---- 压制预设（用户自建）----
+    #[serde(default)]
+    pub presets: Vec<EncodePreset>,
 }
 
 fn d_one() -> f64 {
@@ -306,6 +360,7 @@ impl Default for AppSettings {
             default_format: d_format(),
             auto_scroll_log: true,
             max_log_lines: d_max_log(),
+            log_level: d_log_level(),
             theme: d_theme(),
             accent: d_accent(),
             accent_custom: String::new(),
@@ -318,6 +373,7 @@ impl Default for AppSettings {
             recent_files: Vec::new(),
             show_splash: true,
             meme_url: String::new(),
+            presets: Vec::new(),
         }
     }
 }

@@ -2,6 +2,7 @@ import * as React from 'react'
 import { Copy, Minus, Square, X } from 'lucide-react'
 import { cn } from '~/lib/utils'
 import { isTauri } from '~/lib/api'
+import logo from '~/assets/logo-small.png'
 
 /**
  * 自绘标题栏。
@@ -54,8 +55,10 @@ export function TitleBar({ title, version }: { title: string; version: string })
     >
       <div data-tauri-drag-region className="flex items-center gap-2.5">
         <BrandMark />
-        <span data-tauri-drag-region className="text-[13.5px] font-semibold tracking-wide">
-          {title}
+        <span data-tauri-drag-region className="text-[13.5px] tracking-wide">
+          {/* 前两字跟随主题色（用户点名要的），后面保持正文色，层次就出来了 */}
+          <span className="font-bold text-primary">{title.slice(0, 2)}</span>
+          <span className="font-semibold text-foreground">{title.slice(2)}</span>
         </span>
         <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
           v{version}
@@ -114,8 +117,11 @@ function WinButton({
 
 function BrandMark() {
   return (
-    <span className="flex size-6 items-center justify-center rounded-lg bg-primary text-[13px] font-bold text-primary-foreground shadow-xs">
-      岚
-    </span>
+    <img
+      src={logo}
+      alt="岚珠工具箱"
+      draggable={false}
+      className="size-6 shrink-0 rounded-lg object-cover shadow-xs ring-1 ring-border/60"
+    />
   )
 }

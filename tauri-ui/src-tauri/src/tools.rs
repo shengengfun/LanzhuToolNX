@@ -13,6 +13,21 @@ pub fn quote(p: &str) -> String {
     format!("\"{}\"", p)
 }
 
+/// 给子进程加 `CREATE_NO_WINDOW`。
+///
+/// GUI 应用里 spawn 控制台程序会**闪一下黑框** —— 用户报的
+/// 「拖入视频的时候会弹命令提示符」就是 ffprobe 探测时冒出来的。
+/// 所有 spawn 控制台工具的地方都必须走这个函数。
+pub fn no_window(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 fn exe_dir() -> PathBuf {
     std::env::current_exe()
         .ok()

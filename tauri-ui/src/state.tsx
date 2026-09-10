@@ -167,6 +167,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultFormat: 'H.264 8bit',
   autoScrollLog: true,
   maxLogLines: 4000,
+  logLevel: 'all',
   theme: 'system',
   accent: 'lanzhu',
   accentCustom: '',
@@ -179,6 +180,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   recentFiles: [],
   showSplash: true,
   memeUrl: '',
+  presets: [],
 }
 
 /** 最近文件列表上限。 */
@@ -541,6 +543,10 @@ export function defaultVideo(): VideoSpec {
     bitrate: 800,
     customParams: '',
     extraParams: '',
+    presetName: '',
+    presetEncoder: '',
+    presetParams: '',
+    presetContainer: '',
     width: 0,
     height: 0,
     maintainResolution: false,

@@ -7,6 +7,7 @@ import {
   Plus,
   Square,
   Trash2,
+  Wand2,
   XCircle,
   Zap,
 } from 'lucide-react'
@@ -27,6 +28,7 @@ import {
   Textarea,
 } from '~/components/ui'
 import { PathRow } from '~/components/common'
+import { PresetManager } from '~/components/PresetManager'
 import {
   useApp,
   useDropZone,
@@ -38,9 +40,10 @@ import {
   SUB_FILTERS,
 } from '~/state'
 import * as api from '~/lib/api'
-import { AUDIO_BITRATES, DEMUXERS, VIDEO_FORMATS, type GpuKind } from '~/lib/types'
+import { AUDIO_BITRATES, DEMUXERS, VIDEO_FORMATS, type EncodePreset, type GpuKind } from '~/lib/types'
+import { allPresets, presetBitrateHint, recommendPresets } from '~/lib/encodePresets'
 import { estimateSize, type SourceMetrics } from '~/lib/estimate'
-import { changeExt, extForFormat, humanSize } from '~/lib/utils'
+import { changeExt, cn, extForFormat, humanSize } from '~/lib/utils'
 
 export function VideoPage() {
   const {
@@ -50,6 +53,7 @@ export function VideoPage() {
     patchAudio,
     notify,
     settings,
+    patchSettings,
     running,
     paused,
     run,
@@ -65,7 +69,38 @@ export function VideoPage() {
   const [src, setSrc] = React.useState<SourceMetrics | null>(null)
   /** 用户是否手动改过输出名。改过就尊重用户，不再自动跟随输入文件 */
   const [outputTouched, setOutputTouched] = React.useState(false)
+  const [presetOpen, setPresetOpen] = React.useState(false)
   const autoSubRef = React.useRef('')
+
+  /** 当前生效的预设（未用预设时为 null） */
+  const activePreset = React.useMemo(() => {
+    if (video.mode !== 3 || !video.presetEncoder) return null
+    return (
+      allPresets(settings.presets).find((p) => p.encoder === video.presetEncoder && p.params === video.presetParams) ??
+      null
+    )
+  }, [video.mode, video.presetEncoder, video.presetParams, settings.presets])
+
+  /** 应用一条预设：编码器/参数/容器/分辨率/帧率一并写入 */
+  const applyPreset = (p: EncodePreset) => {
+    // 帧率靠 -r 实现（预设里已经写了就不重复）
+    const params =
+      p.fps > 0 && !/(^|\s)-r\s/.test(p.params)
+        ? `${p.params} -r ${p.fps}`.trim()
+        : p.params
+    patchVideo({
+      mode: 3,
+      presetName: p.name,
+      presetEncoder: p.encoder,
+      presetParams: params,
+      presetContainer: p.container,
+      width: p.width,
+      height: p.height,
+      maintainResolution: p.height === 0,
+      customParams: '',
+    })
+    notify(`已应用预设：${p.name}`)
+  }
 
   React.useEffect(() => {
     api
@@ -153,13 +188,17 @@ export function VideoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [video.input])
 
-  /** 自动输出名：输入变了或格式变了就跟着走，除非用户自己改过输出框。 */
+  /** 自动输出名：输入 / 格式 / 预设容器变了就跟着走，除非用户自己改过输出框。 */
   React.useEffect(() => {
     if (!video.input || outputTouched) return
-    const want = changeExt(video.input, extForFormat(video.format))
+    const ext =
+      video.mode === 3 && video.presetContainer
+        ? `.${video.presetContainer}`
+        : extForFormat(video.format)
+    const want = changeExt(video.input, ext)
     if (video.output !== want) patchVideo({ output: want })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [video.input, video.format, outputTouched])
+  }, [video.input, video.format, video.mode, video.presetContainer, outputTouched])
 
   /** 选输入视频 */
   const chooseInput = async () => {
@@ -331,9 +370,65 @@ export function VideoPage() {
             </Field>
           </div>
 
+          {/* ---------------- 压制预设 ---------------- */}
+          <div className="mt-2">
+            <Field label="压制预设" labelWidth={64}>
+              <div className="flex items-center gap-1.5">
+                <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-xl border border-border/50 bg-muted/25 px-3 text-[12.5px]">
+                  <Wand2 className="size-3.5 shrink-0 text-primary" />
+                  <span className={cn('truncate', !activePreset && 'text-muted-foreground')}>
+                    {activePreset
+                      ? activePreset.name
+                      : '未使用（按「压制格式」走内置模板）'}
+                  </span>
+                  {activePreset && (
+                    <span className="ml-auto shrink-0 font-mono text-[11px] text-muted-foreground">
+                      {activePreset.container.toUpperCase()} · {presetBitrateHint(activePreset)}
+                    </span>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => setPresetOpen(true)}
+                >
+                  选择…
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="shrink-0"
+                  disabled={!src || !src.height}
+                  title={
+                    src?.height
+                      ? '按当前源分辨率挑一条最合适的'
+                      : '导入视频后才能按分辨率推荐'
+                  }
+                  onClick={() => {
+                    if (!src) return
+                    const r = recommendPresets(src, settings.presets)
+                    if (r[0]) applyPreset(r[0])
+                  }}
+                >
+                  推荐
+                </Button>
+              </div>
+            </Field>
+          </div>
+
           <Separator className="my-3" />
 
           <Row className="flex-wrap gap-x-4 gap-y-1.5">
+            <Radio
+              checked={video.mode === 3}
+              // 还没挑过预设就直接把管理器打开 —— 选了这个模式却没预设等于没设置
+              onSelect={() => {
+                patchVideo({ mode: 3 })
+                if (!video.presetEncoder) setPresetOpen(true)
+              }}
+              label="预设"
+            />
             <Radio
               checked={video.mode === 0}
               onSelect={() => patchVideo({ mode: 0 })}
@@ -572,6 +667,16 @@ export function VideoPage() {
           </div>
         </GroupCard>
       </div>
+
+      <PresetManager
+        open={presetOpen}
+        onClose={() => setPresetOpen(false)}
+        current={activePreset?.id ?? ''}
+        source={src ? { width: src.width, height: src.height, fps: src.fps } : null}
+        custom={settings.presets}
+        onApply={applyPreset}
+        onChangeCustom={(next) => patchSettings({ presets: next })}
+      />
     </div>
   )
 }

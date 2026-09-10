@@ -169,13 +169,23 @@ fn plan_batch(
         return Err("请先选择输出路径".into());
     }
 
-    let suffix = match cmd::preset_kind(&spec.format) {
-        cmd::PresetKind::Hevc => "hevc",
-        cmd::PresetKind::Mov => "mov",
-        cmd::PresetKind::Flv => "flv",
-        cmd::PresetKind::H264 => "h264",
+    let suffix = if spec.mode == 3 && !spec.preset_name.trim().is_empty() {
+        // 预设模式：后缀直接用预设名（去掉不能做文件名的字符），比 "hevc" 清楚得多
+        let s: String = spec
+            .preset_name
+            .chars()
+            .filter(|c| !"\\/:*?\"<>|".contains(*c))
+            .collect();
+        s.replace(' ', "_")
+    } else {
+        match cmd::preset_kind(&spec.format) {
+            cmd::PresetKind::Hevc => "hevc".to_string(),
+            cmd::PresetKind::Mov => "mov".to_string(),
+            cmd::PresetKind::Flv => "flv".to_string(),
+            cmd::PresetKind::H264 => "h264".to_string(),
+        }
     };
-    let ext = cmd::output_ext(&spec.format);
+    let ext = cmd::container_ext(&spec);
 
     let mut all: Vec<String> = Vec::new();
     for input in inputs.iter() {
@@ -683,10 +693,10 @@ fn main() {
         })
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
-                if settings::load().close_to_tray {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
+                // 点 X 一律收回托盘（而不是退出）—— 长任务跑到一半手滑关掉是最伤的。
+                // 真退出走托盘菜单的「退出岚珠工具箱」。
+                api.prevent_close();
+                let _ = window.hide();
             }
             tauri::WindowEvent::Resized(_) => {
                 // 只有真的最小化了才去读设置文件：拖拽改变尺寸时会高频触发这个事件，

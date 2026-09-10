@@ -1,5 +1,5 @@
 use crate::spec::{AudioStreamInfo, MediaInfo, VideoStreamInfo};
-use crate::tools::tool;
+use crate::tools::{no_window, tool};
 use std::process::Command;
 
 /// 用 ffprobe 探测媒体信息。
@@ -24,17 +24,18 @@ pub fn probe(tools: &str, path: &str) -> MediaInfo {
         info.size_bytes = md.len() as i64;
     }
 
-    let out = Command::new(tool(tools, "ffprobe.exe"))
-        .args([
-            "-v",
-            "quiet",
-            "-print_format",
-            "json",
-            "-show_format",
-            "-show_streams",
-        ])
-        .arg(path)
-        .output();
+    let mut cmd = Command::new(tool(tools, "ffprobe.exe"));
+    cmd.args([
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-show_format",
+        "-show_streams",
+    ])
+    .arg(path);
+    // 不加 CREATE_NO_WINDOW 的话，每次探测都会在屏幕上闪一个黑框
+    let out = no_window(&mut cmd).output();
 
     let Ok(out) = out else {
         info.raw = "ffprobe 启动失败，请检查工具目录".into();

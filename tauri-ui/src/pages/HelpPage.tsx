@@ -4,19 +4,26 @@ import { Badge, Button, Card, GroupCard, Row } from '~/components/ui'
 import { useApp } from '~/state'
 import * as api from '~/lib/api'
 import type { Meme } from '~/lib/types'
+import logo from '~/assets/logo.png'
 
 export function HelpPage() {
   return (
     <div className="flex h-full min-h-0 max-w-[880px] flex-col gap-3 overflow-y-auto px-0.5 pt-1 pr-1">
       <Card className="p-4">
         <Row className="gap-3">
-          <span className="flex size-11 items-center justify-center rounded-2xl bg-primary text-xl font-bold text-primary-foreground shadow-sm">
-            岚
-          </span>
+          <img
+            src={logo}
+            alt="岚珠工具箱"
+            draggable={false}
+            className="size-14 shrink-0 rounded-2xl object-cover shadow-sm ring-1 ring-border/60"
+          />
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[15px] font-semibold">岚珠工具箱</span>
-              <Badge>v1.2.0</Badge>
+              <span className="text-[16px] tracking-wide">
+                <span className="font-bold text-primary">岚珠</span>
+                <span className="font-semibold text-foreground">工具箱</span>
+              </span>
+              <Badge>v1.3.0</Badge>
             </div>
             <div className="mt-0.5 text-[12px] text-muted-foreground">
               动画 / 番剧压制的瑞士军刀：压制、转码、剪切、封装、抽取一条龙。
@@ -51,6 +58,18 @@ export function HelpPage() {
 
       <GroupCard title="更新日志">
         <div className="space-y-3 text-[12px] leading-relaxed">
+          <Changelog
+            version="v1.3.0"
+            items={[
+              '新增「压制预设」：内置 18 条（ProRes / DNxHR / AV1 / VP9 / FFV1 / MPEG-2 …）+ 可自建，能按源分辨率推荐',
+              '应用图标换成新 logo，标题栏「岚珠」二字跟随主题色',
+              '关窗口（✕）收回托盘；托盘右键菜单新增暂停/终止任务、打开输出/工具目录',
+              '日志：不再限制行数，改为可选记录范围（全部 / 警告↑ / 仅错误）',
+              '设置：新增「重置」（可只重置外观），托盘选项精简',
+              '修：拖入视频时闪命令提示符（ffprobe 没加 CREATE_NO_WINDOW）',
+              '修：底栏 CPU 使用率显示到小数点后十几位',
+            ]}
+          />
           <Changelog
             version="v1.2.0"
             items={[

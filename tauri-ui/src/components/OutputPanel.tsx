@@ -1,22 +1,48 @@
 import * as React from 'react'
 import { Copy, ListChecks, Save, ScrollText, Trash2 } from 'lucide-react'
-import { Button, EmptyState, Row } from './ui'
+import { Button, EmptyState, Row, Select } from './ui'
 import { cn } from '~/lib/utils'
 import { useApp, pickSave } from '~/state'
 import * as api from '~/lib/api'
 
+const LOG_LEVEL_LABEL: Record<string, string> = {
+  all: '全部',
+  warn: '警告↑',
+  error: '仅错误',
+}
+
 type Tab = 'log' | 'task'
 
+type LineLevel = 'error' | 'warn' | 'info'
+
+/** 把一行输出归到三档之一，「记录范围」按这个过滤。 */
+function lineLevel(t: string): LineLevel {
+  if (/\berror\b|失败|错误|Invalid|No such|is not recognized|不是内部或外部命令/i.test(t)) {
+    return 'error'
+  }
+  if (/\bwarn|warning|警告/i.test(t)) return 'warn'
+  return 'info'
+}
+
+/** 是否按当前「记录范围」展示这一行。 */
+function passLevel(t: string, level: string) {
+  const l = lineLevel(t)
+  if (level === 'error') return l === 'error'
+  if (level === 'warn') return l === 'error' || l === 'warn'
+  return true
+}
+
 const LEVEL_COLOR = (t: string) => {
-  if (/\berror\b|失败|错误|Invalid|No such/i.test(t)) return 'text-destructive'
-  if (/\bwarn/i.test(t)) return 'text-amber-600'
+  const l = lineLevel(t)
+  if (l === 'error') return 'text-destructive'
+  if (l === 'warn') return 'text-amber-600'
   if (t.startsWith('>')) return 'text-primary'
   if (t.startsWith('=====')) return 'font-semibold text-muted-foreground'
   return ''
 }
 
 export function OutputPanel() {
-  const { log, clearLog, running, progress, runningCmd, settings, notify } = useApp()
+  const { log, clearLog, running, progress, runningCmd, settings, patchSettings, notify } = useApp()
   const [tab, setTab] = React.useState<Tab>('log')
   const [autoScroll, setAutoScroll] = React.useState(settings.autoScrollLog)
   const [collapsed, setCollapsed] = React.useState(false)
@@ -31,7 +57,11 @@ export function OutputPanel() {
     if (el) el.scrollTop = el.scrollHeight
   }, [log, autoScroll, tab])
 
-  const text = log.map((l) => l.text).join('\n')
+  // 记录范围（全部 / 警告 / 错误）—— 界面只显示这一档，复制/保存也跟着走
+  const level = settings.logLevel || 'all'
+  const shown = React.useMemo(() => log.filter((l) => passLevel(l.text, level)), [log, level])
+  const hidden = log.length - shown.length
+  const text = shown.map((l) => l.text).join('\n')
 
   return (
     <aside
@@ -65,6 +95,7 @@ export function OutputPanel() {
         </div>
       ) : (
         <>
+          {/* 工具行（把「自动滚动」挤在这行会显示不开，所以它单独一行） */}
           <div className="flex shrink-0 items-center gap-1 border-b border-border/60 px-2 py-1.5">
             <Button
               size="sm"
@@ -104,8 +135,11 @@ export function OutputPanel() {
               <Trash2 className="size-3" />
               清空
             </Button>
-            <span className="flex-1" />
-            <label className="flex cursor-pointer items-center gap-1.5 text-[11.5px] text-muted-foreground">
+          </div>
+
+          {/* 选项行：自动滚动 + 记录范围 */}
+          <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-2 py-1 text-[11.5px] text-muted-foreground">
+            <label className="flex cursor-pointer items-center gap-1.5">
               <input
                 type="checkbox"
                 checked={autoScroll}
@@ -114,6 +148,18 @@ export function OutputPanel() {
               />
               自动滚动
             </label>
+            <span className="flex-1" />
+            {hidden > 0 && <span className="opacity-70">已滤 {hidden} 行</span>}
+            <Select
+              className="w-[104px]"
+              value={LOG_LEVEL_LABEL[level] ?? '全部'}
+              onValueChange={(v) =>
+                patchSettings({
+                  logLevel: Object.entries(LOG_LEVEL_LABEL).find(([, l]) => l === v)?.[0] ?? 'all',
+                })
+              }
+              options={Object.values(LOG_LEVEL_LABEL)}
+            />
           </div>
 
           {/* 内容 */}
@@ -123,11 +169,13 @@ export function OutputPanel() {
               data-selectable
               className="min-h-0 flex-1 overflow-auto bg-muted/20 p-2.5 font-mono text-[11.5px] leading-[1.6] whitespace-pre-wrap"
             >
-              {log.length === 0 ? (
-                <EmptyState title="暂无输出" />
+              {shown.length === 0 ? (
+                <EmptyState
+                  title={log.length === 0 ? '暂无输出' : '当前记录范围下没有内容'}
+                />
               ) : (
-                log.map((l) => (
-                  <div key={l.id} className={cn('break-all', l.stream === 'stderr' && 'text-destructive/90', LEVEL_COLOR(l.text))}>
+                shown.map((l) => (
+                  <div key={l.id} className={cn('break-all', LEVEL_COLOR(l.text))}>
                     {l.text}
                   </div>
                 ))

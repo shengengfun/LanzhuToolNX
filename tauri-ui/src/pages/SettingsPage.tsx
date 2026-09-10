@@ -7,13 +7,12 @@ import {
   Checkbox,
   Field,
   GroupCard,
-  Input,
   Row,
   Select,
 } from '~/components/ui'
 import { PathRow } from '~/components/common'
 import { ToolsFetch } from '~/components/ToolsFetch'
-import { useApp, pickFile, pickFolder } from '~/state'
+import { useApp, pickFile, pickFolder, DEFAULT_SETTINGS } from '~/state'
 import * as api from '~/lib/api'
 import { ACCENT_PRESETS, accentHex } from '~/lib/appearance'
 import { VIDEO_FORMATS } from '~/lib/types'
@@ -40,6 +39,13 @@ const THEME_LABEL: Record<string, string> = {
   light: '亮色',
   dark: '暗色',
   system: '跟随系统',
+}
+
+/** 日志记录范围：全部 / 警告以上 / 仅错误。 */
+const LOG_LEVEL_LABEL: Record<string, string> = {
+  all: '全部',
+  warn: '警告↑',
+  error: '仅错误',
 }
 
 /**
@@ -91,6 +97,8 @@ export function SettingsPage() {
   const [tools, setTools] = React.useState<string[]>([])
   const [actual, setActual] = React.useState('')
   const [busy, setBusy] = React.useState(false)
+  /** 「重置所有设置」的两步确认 */
+  const [confirmReset, setConfirmReset] = React.useState(false)
 
   const reload = React.useCallback(async () => {
     setBusy(true)
@@ -165,13 +173,15 @@ export function SettingsPage() {
               options={THREADS}
             />
           </Field>
-          <Field label="日志行数" labelWidth={56}>
-            <Input
-              type="number"
-              min={200}
-              step={200}
-              value={settings.maxLogLines}
-              onChange={(e) => patchSettings({ maxLogLines: Number(e.target.value) || 4000 })}
+          <Field label="记录范围" labelWidth={56}>
+            <Select
+              value={LOG_LEVEL_LABEL[settings.logLevel] ?? '全部'}
+              onValueChange={(v) =>
+                patchSettings({
+                  logLevel: Object.entries(LOG_LEVEL_LABEL).find(([, l]) => l === v)?.[0] ?? 'all',
+                })
+              }
+              options={Object.values(LOG_LEVEL_LABEL)}
             />
           </Field>
           <Field label="自动滚动" labelWidth={56}>
@@ -273,7 +283,7 @@ export function SettingsPage() {
                     className="h-7"
                     onClick={() => patchSettings({ accentCustom: '' })}
                   >
-                    恢复默认（钟岚珠）
+                    恢复默认
                   </Button>
                 )}
                 {!settings.accentCustom && (
@@ -357,8 +367,63 @@ export function SettingsPage() {
           />
         </div>
         <p className="mt-2 text-[11.5px] text-muted-foreground">
-          托盘图标：左键单击唤回窗口，右键出菜单。
+          托盘图标：左键单击唤回窗口，右键出菜单（显示 / 隐藏 / 暂停任务 / 终止任务 /
+          打开输出目录 / 打开工具目录 / 退出）。
+          <br />
+          点窗口右上角的 ✕ 会<b className="text-foreground">收回托盘</b>而不是退出；
+          真要退出请用托盘菜单里那一条。
         </p>
+      </GroupCard>
+
+      {/* ---------- 重置 ---------- */}
+      <GroupCard title="重置">
+        <Row className="flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              patchSettings({
+                theme: 'system',
+                accent: 'lanzhu',
+                accentCustom: '',
+                background: '',
+                uiScale: 1,
+              })
+              notify('外观已重置')
+            }}
+          >
+            重置外观
+          </Button>
+
+          {/* 两步确认：第一次点击只是变个文案，避免误点就把所有设置清掉 */}
+          <Button
+            size="sm"
+            variant={confirmReset ? 'destructive' : 'outline'}
+            onClick={() => {
+              if (!confirmReset) {
+                setConfirmReset(true)
+                window.setTimeout(() => setConfirmReset(false), 4000)
+                return
+              }
+              setConfirmReset(false)
+              patchSettings({
+                ...DEFAULT_SETTINGS,
+                // 路径与镜像不算"设置项"，清了还得重填，没必要
+                toolsDir: settings.toolsDir,
+                outputDir: settings.outputDir,
+                language: settings.language,
+                mirrors: settings.mirrors,
+              })
+              notify('设置已恢复到初始状态')
+            }}
+          >
+            {confirmReset ? '再点一次确认重置' : '重置所有设置'}
+          </Button>
+
+          <span className="text-[11.5px] text-muted-foreground">
+            重置不会动工具目录 / 输出目录 / 下载镜像
+          </span>
+        </Row>
       </GroupCard>
 
       {/* ---------- 界面 ---------- */}

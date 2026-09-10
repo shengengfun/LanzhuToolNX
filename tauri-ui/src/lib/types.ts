@@ -34,12 +34,18 @@ export interface VideoSpec {
   /** 「压制格式」文本，如 "H.264 8bit" / "HEVC 10bit" */
   format: string
 
-  /** 0=自定义参数 1=质量(CRF) 2=二遍码率 */
-  mode: 0 | 1 | 2
+  /** 0=自定义参数 1=质量(CRF) 2=二遍码率 3=压制预设 */
+  mode: 0 | 1 | 2 | 3
   crf: number
   bitrate: number
   customParams: string
   extraParams: string
+
+  // ---- 压制预设（mode = 3 时生效）----
+  presetName: string
+  presetEncoder: string
+  presetParams: string
+  presetContainer: string
 
   width: number
   height: number
@@ -177,6 +183,8 @@ export interface AppSettings {
   // ---- 日志 ----
   autoScrollLog: boolean
   maxLogLines: number
+  /** 记录范围：all | warn | error */
+  logLevel: string
 
   // ---- 外观 ----
   /** 'light' | 'dark' | 'system' */
@@ -205,6 +213,37 @@ export interface AppSettings {
   showSplash: boolean
   /** 烂梗来源 URL；留空用内置候选 */
   memeUrl: string
+
+  // ---- 压制预设（用户自建） ----
+  presets: EncodePreset[]
+}
+
+/**
+ * 一条压制预设。
+ *
+ * 内置的写在前端 `lib/encodePresets.ts`，用户自建的存进设置文件，
+ * 两边共用一个结构；`builtin` 用来决定能不能删/改。
+ */
+export interface EncodePreset {
+  id: string
+  name: string
+  /** 分类：常用 / 网络 / 中间格式 / 存档 / 设备 */
+  group: string
+  desc: string
+  /** 容器扩展名（不带点）：mp4 / mov / mkv / avi */
+  container: string
+  /** 编码器：libx264 / libx265 / prores_ks / dnxhd / libsvtav1 … */
+  encoder: string
+  /** 编码参数，原样拼到 `-c:v <encoder>` 后面 */
+  params: string
+  /** 目标分辨率；0 = 保持原分辨率 */
+  width: number
+  height: number
+  /** 目标帧率；0 = 不改变 */
+  fps: number
+  /** 推荐用：源高度 ≥ 这个值时才推荐 */
+  minSourceHeight: number
+  builtin: boolean
 }
 
 /** 粗剪（视频/音频通用）；时间单位是秒，end<=start 表示到结尾。 */

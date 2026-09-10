@@ -95,8 +95,9 @@ export function StatusBar() {
 
 /** 性能监控区：CPU / GPU / 内存（取不到的项显示 --，绝不显示假数字）。 */
 function Monitor({ stats }: { stats: SysStats }) {
-  const memPct = stats.memTotal > 0 ? Math.round((stats.memUsed / stats.memTotal) * 100) : -1
-  const gpuPct = stats.gpu >= 0 ? Math.round(stats.gpu) : -1
+  const memPct = pctOf(
+    stats.memTotal > 0 ? (stats.memUsed / stats.memTotal) * 100 : -1,
+  )
 
   return (
     <div className="flex items-center gap-2.5">
@@ -107,11 +108,11 @@ function Monitor({ stats }: { stats: SysStats }) {
         </span>
       )}
 
-      <Meter icon={<Cpu className="size-3" />} label="CPU" pct={stats.cpu >= 0 ? stats.cpu : -1} />
+      <Meter icon={<Cpu className="size-3" />} label="CPU" pct={pctOf(stats.cpu)} />
       <Meter
         icon={<HardDrive className="size-3" />}
         label={stats.gpuName ? shortGpu(stats.gpuName) : 'GPU'}
-        pct={gpuPct}
+        pct={pctOf(stats.gpu)}
       />
       <Meter
         icon={<MemoryStick className="size-3" />}
@@ -150,6 +151,9 @@ function Meter({
 function gb(bytes: number) {
   return (bytes / 1024 / 1024 / 1024).toFixed(1)
 }
+
+/** 监视器上只看整数：`12.345678901234%` 这种精度没有任何意义，还把底栏撑爆。 */
+const pctOf = (v: number) => (v >= 0 ? Math.round(v) : -1)
 
 /** 显卡名太长（"NVIDIA GeForce RTX 4070 Ti SUPER"）会挤爆底栏，留前几个词就行。 */
 function shortGpu(name: string) {

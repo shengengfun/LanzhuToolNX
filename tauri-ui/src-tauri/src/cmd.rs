@@ -75,6 +75,27 @@ pub fn temp_ext(format: &str) -> &'static str {
 }
 
 /// 镜像原版 `getAudioExt`。
+/// 输出扩展名：预设模式跟预设的容器走，否则按「压制格式」推。
+pub fn container_ext(spec: &VideoSpec) -> String {
+    if spec.mode == 3 && !spec.preset_container.trim().is_empty() {
+        format!(
+            ".{}",
+            spec.preset_container.trim().trim_start_matches('.').to_lowercase()
+        )
+    } else {
+        output_ext(&spec.format).to_string()
+    }
+}
+
+/// 中间临时视频文件的扩展名（预设模式用容器扩展名；否则沿用原版那张表）。
+pub fn temp_container_ext(spec: &VideoSpec) -> String {
+    if spec.mode == 3 && !spec.preset_container.trim().is_empty() {
+        container_ext(spec)
+    } else {
+        temp_ext(&spec.format).to_string()
+    }
+}
+
 pub fn audio_ext(encoder: usize) -> &'static str {
     match encoder {
         0 => ".mp4",
@@ -120,7 +141,10 @@ pub fn build_video(
     let kind = preset_kind(&spec.format);
     let bit_depth = preset_bit_depth(&spec.format);
     let use_hevc = kind == PresetKind::Hevc;
-    let use_gpu = spec.use_gpu || spec.hybrid;
+    // 预设模式（mode = 3）自己带编码器与参数：这时软件/GPU 的分支全部让位，
+    // 否则会和预设里的 `-c:v` / `-pix_fmt` 打架。
+    let preset_mode = spec.mode == 3 && !spec.preset_encoder.trim().is_empty();
+    let use_gpu = (spec.use_gpu || spec.hybrid) && !preset_mode;
 
     // ---- GPU 编码器选择（镜像原版的厂商分支）----
     let mut gpu_encoder: Option<&'static str> = None;
@@ -145,7 +169,9 @@ pub fn build_video(
             }
         }
     }
-    let encoder: &str = if use_gpu {
+    let encoder: &str = if preset_mode {
+        spec.preset_encoder.trim()
+    } else if use_gpu {
         gpu_encoder.unwrap()
     } else if use_hevc {
         "libx265"
@@ -214,7 +240,8 @@ pub fn build_video(
     }
     // GPU 硬件加速时绝不能加 -pix_fmt：硬解输出的硬件帧会被自动插入的
     // auto_scale 滤镜尝试转成软件帧而失败（-40 Function not implemented）。
-    if !use_gpu {
+    // 预设模式也不加：像素格式该写在预设参数里（ProRes 要 yuv422p10le 这种）。
+    if !use_gpu && !preset_mode {
         sb.push_str(&format!(" -pix_fmt {}", pix));
     }
 
@@ -287,6 +314,13 @@ pub fn build_video(
                 sb.push_str(spec.custom_params.trim());
             }
         }
+        3 => {
+            // 预设：参数原样拼上（包含 -profile:v / -qscale:v / -pix_fmt 这些）
+            if !spec.preset_params.trim().is_empty() {
+                sb.push(' ');
+                sb.push_str(spec.preset_params.trim());
+            }
+        }
         1 => {
             let v = n(spec.crf);
             if g.contains("amf") {
@@ -310,7 +344,7 @@ pub fn build_video(
         _ => {}
     }
 
-    if spec.mode != 0 {
+    if spec.mode == 1 || spec.mode == 2 {
         if !spec.extra_params.trim().is_empty() {
             sb.push(' ');
             sb.push_str(spec.extra_params.trim());
@@ -520,7 +554,7 @@ pub fn video_pipeline(
         .join(format!(
             "{}_vtemp{}",
             input_name,
-            temp_ext(&spec.format)
+            temp_container_ext(spec)
         ))
         .to_string_lossy()
         .to_string();
@@ -1143,6 +1177,41 @@ subtitles='C\\:/sub dir/a.ass',hwupload_cuda\""
         assert_eq!(preset_bit_depth("HEVC 12bit"), 12);
         assert_eq!(preset_bit_depth("HEVC 10bit"), 10);
         assert_eq!(preset_bit_depth("H.264 8bit"), 8);
+    }
+
+    /// 预设模式：编码器/参数/容器全部听预设的，自动推导的那些一概不出现。
+    #[test]
+    fn preset_mode_uses_preset_encoder_and_params() {
+        let s = VideoSpec {
+            mode: 3,
+            preset_name: "ProRes 422 (Proxy)".into(),
+            preset_encoder: "prores_ks".into(),
+            preset_params: "-profile:v 0 -pix_fmt yuv422p10le -qscale:v 9".into(),
+            preset_container: "mov".into(),
+            // 就算界面里开着 GPU 加速，预设模式也必须忽略它，否则编码器会打架
+            use_gpu: true,
+            ..Default::default()
+        };
+        let c = build_video(&s, T, "in.mp4", "out.mov", 0, "");
+        assert!(
+            c.contains(" -c:v prores_ks -profile:v 0 -pix_fmt yuv422p10le -qscale:v 9"),
+            "{}",
+            c
+        );
+        // 预设自带 pix_fmt，不能再被自动补一个 yuv420p
+        assert_eq!(c.matches("pix_fmt").count(), 1, "{}", c);
+        // 也不该出现 CRF / 默认 preset / GPU 编码器
+        assert!(!c.contains("-crf"), "{}", c);
+        assert!(!c.contains("-preset fast"), "{}", c);
+        assert!(!c.contains("nvenc"), "{}", c);
+
+        // 容器跟着预设走
+        assert_eq!(container_ext(&s), ".mov");
+        assert_eq!(temp_container_ext(&s), ".mov");
+        // 非预设模式仍然按原版那张表
+        let d = VideoSpec::default();
+        assert_eq!(container_ext(&d), ".mp4");
+        assert_eq!(temp_container_ext(&d), ".mp4");
     }
 
     #[test]

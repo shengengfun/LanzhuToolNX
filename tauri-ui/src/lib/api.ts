@@ -161,6 +161,7 @@ export const loadSettings = () =>
     defaultFormat: 'H.264 8bit',
     autoScrollLog: true,
     maxLogLines: 4000,
+    logLevel: 'all',
     theme: 'system',
     accent: 'lanzhu',
     accentCustom: '',
@@ -173,6 +174,7 @@ export const loadSettings = () =>
     recentFiles: [],
     showSplash: true,
     memeUrl: '',
+    presets: [],
   })
 
 export const saveSettings = (s: AppSettings) =>
