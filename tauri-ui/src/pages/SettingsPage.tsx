@@ -316,6 +316,21 @@ export function SettingsPage() {
               )}
             </div>
           </Field>
+
+          {/* 烂梗接口留个口子：站点换域名/换接口时用户能自己填，
+              不用等版本更新（默认留空 = 内置候选列表） */}
+          <Field label="烂梗接口" labelWidth={64}>
+            <div className="flex items-center gap-2">
+              <input
+                value={settings.memeUrl}
+                onChange={(e) => patchSettings({ memeUrl: e.target.value })}
+                spellCheck={false}
+                placeholder="留空 = 自动试 sb6657.cn 的几个常见接口"
+                className="h-7 min-w-0 flex-1 rounded-lg border border-input/60 bg-muted/40 px-2 font-mono text-[11.5px] transition-colors focus-visible:border-primary focus-visible:bg-card focus-visible:outline-none"
+              />
+              <span className="shrink-0 text-[11px] text-muted-foreground">帮助页彩蛋用</span>
+            </div>
+          </Field>
         </div>
       </GroupCard>
 
