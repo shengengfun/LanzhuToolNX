@@ -129,8 +129,10 @@ export const abortShutdown = () => call<void>('abort_shutdown', {}, undefined)
  * 执行与探测
  * ------------------------------------------------------------------ */
 
-export const runCommands = (commands: string, cwd: string, workCount = 1) =>
-  call<number>('run_commands', { commands, cwd, workCount }, -1)
+/** 执行一批命令。`commands` 必须是**数组**（后端是 `Vec<String>`），
+ *  传拼好的整串会被 Tauri 判成 `invalid args ... expected a sequence`。 */
+export const runCommands = (commands: string[], workCount = 1) =>
+  call<number>('run_commands', { commands, workCount }, -1)
 
 export const cancelRun = (id: number) => call<void>('cancel_run', { id }, undefined)
 

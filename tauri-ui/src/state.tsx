@@ -390,7 +390,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       appendLog(`===== 开始执行 ${clean.length} 条命令 =====`, 'app')
       clean.forEach((c) => appendLog(`> ${c}`))
       try {
-        const id = await api.runCommands(clean.join('\r\n'), '', clean.length)
+        const id = await api.runCommands(clean, clean.length)
         setRunId(id)
       } catch (e) {
         appendLog(`启动失败：${String(e)}`, 'stderr')

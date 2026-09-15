@@ -6,11 +6,17 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-/** 把 Windows 路径拆成 目录 / 文件名（不含扩展名） / 扩展名。 */
+/**
+ * 把 Windows 路径拆成 目录 / 文件名（不含扩展名） / 扩展名。
+ *
+ * ⚠️ `dir` **带结尾分隔符**（`"D:\\a\\b.mp4"` → `"D:\\a\\"`），
+ * 因为下游一律用 `dir + 文件名` 拼路径。以前这里把分隔符切掉了，
+ * 结果 `changeExt()` / 抽取页拼出来的路径全是 `D:\Transname.mp4` 这种缺分隔符的乱码。
+ */
 export function splitPath(p: string) {
   const norm = p.replace(/\\/g, '/')
   const i = norm.lastIndexOf('/')
-  const dir = i >= 0 ? p.slice(0, p.length - (norm.length - i)) : ''
+  const dir = i >= 0 ? p.slice(0, i + 1) : ''
   const base = i >= 0 ? norm.slice(i + 1) : norm
   const j = base.lastIndexOf('.')
   return {
@@ -20,6 +26,7 @@ export function splitPath(p: string) {
   }
 }
 
+/** 换掉扩展名（目录、文件名原样保留）。 */
 export function changeExt(p: string, ext: string) {
   const { dir, stem } = splitPath(p)
   return `${dir}${stem}${ext}`
