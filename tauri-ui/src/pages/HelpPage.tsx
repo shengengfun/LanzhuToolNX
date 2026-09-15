@@ -23,7 +23,7 @@ export function HelpPage() {
                 <span className="font-bold text-primary">岚珠</span>
                 <span className="font-semibold text-foreground">工具箱</span>
               </span>
-              <Badge>v1.3.2</Badge>
+              <Badge>v{__APP_VERSION__}</Badge>
             </div>
             <div className="mt-0.5 text-[12px] text-muted-foreground">
               动画 / 番剧压制的瑞士军刀：压制、转码、剪切、封装、抽取一条龙。
@@ -58,6 +58,15 @@ export function HelpPage() {
 
       <GroupCard title="更新日志">
         <div className="space-y-3 text-[12px] leading-relaxed">
+          <Changelog
+            version="v1.3.3"
+            items={[
+              '修：1.3.2 里所有执行按钮都会报 invalid args（任务根本发不出去）',
+              '修：自动输出名会丢掉一个反斜杠，生成 D:\\Trans片名.mp4 这种粘连路径',
+              '外观：自定义主题色的 R/G/B 滑条改成渐变轨道，拖动前就能看出会变成什么颜色',
+              '应用图标换成圆角方形',
+            ]}
+          />
           <Changelog
             version="v1.3.2"
             items={[
