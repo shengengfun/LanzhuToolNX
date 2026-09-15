@@ -1,0 +1,90 @@
+# 岚珠工具箱 · 发布流程
+#
+# 触发：推 v* tag，或在 Actions 页手动填 tag
+# 正文：优先用 release-notes/<tag>.md（模板见 release-notes/TEMPLATE.md），没有则占位
+# 产物：LanzhuToolNX_<版本>_x64-setup.exe（ASCII 名）+ SHA256SUMS.txt
+#
+# TODO（签名）：拿到证书 / SignPath 审核通过后，在「Build」之前签主 exe、之后签 setup.exe，
+#               Tauri 的 bundle.windows.signCommand 会一并签卸载器（installer.nsi 的 !uninstfinalize）。
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的 tag（如 v1.3.2）"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 解析版本
+        id: v
+        shell: pwsh
+        run: |
+          $tag = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ inputs.tag }}' } else { '${{ github.ref_name }}' }
+          $ver = (Get-Content tauri-ui/package.json -Raw | ConvertFrom-Json).version
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$ver" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tauri-ui/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: tauri-ui/src-tauri
+
+      - name: 安装前端依赖
+        working-directory: tauri-ui
+        run: npm ci
+
+      - name: 构建（NSIS）
+        working-directory: tauri-ui
+        run: npx tauri build --bundles nsis
+
+      - name: 整理产物
+        shell: pwsh
+        run: |
+          $ver = '${{ steps.v.outputs.version }}'
+          New-Item -ItemType Directory -Force dist-app | Out-Null
+          Get-ChildItem tauri-ui/src-tauri/target/release/bundle/nsis/*.exe | ForEach-Object {
+            Copy-Item $_.FullName "dist-app/LanzhuToolNX_${ver}_x64-setup.exe"
+          }
+          Get-FileHash dist-app/*.exe -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } |
+            Set-Content dist-app/SHA256SUMS.txt -Encoding utf8
+          Get-ChildItem dist-app
+
+      - name: 生成发布说明
+        shell: pwsh
+        run: |
+          $tag = '${{ steps.v.outputs.tag }}'
+          $f = "release-notes/$tag.md"
+          if (Test-Path $f) {
+            Copy-Item $f RELEASE_NOTES.md
+          } else {
+            @("# 岚珠工具箱 $tag", "", "> 本版说明待补充，请在此 Release 页编辑正文。") |
+              Set-Content RELEASE_NOTES.md -Encoding utf8
+          }
+
+      - name: 发布
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.v.outputs.tag }}
+          name: 岚珠工具箱 ${{ steps.v.outputs.tag }}
+          body_path: RELEASE_NOTES.md
+          draft: false
+          files: dist-app/*

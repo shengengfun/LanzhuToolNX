@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078D6.svg)](#下载)
 [![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB.svg)](https://tauri.app)
-[![Release](https://img.shields.io/badge/release-v1.3.2-FF6B6B.svg)](../../releases/latest)
+[![Release](https://img.shields.io/github/v/release/shengengfun/LanzhuToolNX?label=release&color=FF6B6B)](../../releases/latest)
 
 </div>
 
