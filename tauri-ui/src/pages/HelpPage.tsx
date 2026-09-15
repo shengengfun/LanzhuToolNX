@@ -59,12 +59,19 @@ export function HelpPage() {
       <GroupCard title="更新日志">
         <div className="space-y-3 text-[12px] leading-relaxed">
           <Changelog
+            version="v1.3.4"
+            items={[
+              '修：找回了自动输出文件名 —— 压制不再把源文件覆盖掉（1.mp4 → 1_h264.mp4，重名自动退到 1_new_file(1)_h264.mp4）',
+              '修：音频页恢复自动填输出名（_AAC.mp4 / _WAV.wav / _FLAC.flac 等）；封装页 _Mux.mp4、AVS _AVS.mp4、一图流 _SP.mp4',
+              '应用图标换成圆角方形（同 RinaDown 风格），安装包向导顶栏一起换了',
+            ]}
+          />
+          <Changelog
             version="v1.3.3"
             items={[
               '修：1.3.2 里所有执行按钮都会报 invalid args（任务根本发不出去）',
               '修：自动输出名会丢掉一个反斜杠，生成 D:\\Trans片名.mp4 这种粘连路径',
               '外观：自定义主题色的 R/G/B 滑条改成渐变轨道，拖动前就能看出会变成什么颜色',
-              '应用图标换成圆角方形',
             ]}
           />
           <Changelog
