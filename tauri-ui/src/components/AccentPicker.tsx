@@ -2,6 +2,10 @@ import * as React from 'react'
 import { Check } from 'lucide-react'
 import { cn } from '~/lib/utils'
 import { ACCENT_PRESETS, hexToRgb, inkOn, rgbToHex } from '~/lib/appearance'
+import { Slider } from './common'
+
+/** 三根滑条的显示名，下标与 rgb 数组一一对应。 */
+const CHANNEL_LABELS = ['R', 'G', 'B'] as const
 
 /**
  * 强调色选择器。
@@ -9,7 +13,9 @@ import { ACCENT_PRESETS, hexToRgb, inkOn, rgbToHex } from '~/lib/appearance'
  * 三层结构，按"从粗到细"排：
  *   1. 13 个角色色板 —— 选中的色块里打对号（对号颜色按底色亮度现算，
  *      不然中须霞的黄底上白勾直接看不见）
- *   2. 选中"自定义"后才展开 R / G / B 三根调整条（实时生效）
+ *   2. 选中"自定义"后才展开 R / G / B 三根调整条（实时生效）。
+ *      每根的轨道是一条**渐变**，左端是"该通道拉到 0"、右端是"拉到 255"，
+ *      滑块里填当前色 —— 拖动前就知道会变成什么颜色（照 RinaDown 的颜色选择器）
  *   3. 再下面是 HTML 色号输入框，给习惯直接填色号的人
  *
  * 色号与滑条**双向同步**：拖滑条 → 色号跟着变；改色号 → 滑条跟着走。
@@ -115,10 +121,17 @@ export function AccentPicker({
 
       {/* ---- 2. 三原色调整条（只在自定义时出现） ---- */}
       {active && (
-        <div className="max-w-[420px] space-y-1.5 rounded-xl border border-border/60 bg-muted/25 p-2.5">
-          <Channel index={0} label="R" value={rgb[0]} color="#e5484d" onChange={setChannel} />
-          <Channel index={1} label="G" value={rgb[1]} color="#46a758" onChange={setChannel} />
-          <Channel index={2} label="B" value={rgb[2]} color="#0090ff" onChange={setChannel} />
+        <div className="max-w-[420px] space-y-2.5 rounded-xl border border-border/60 bg-muted/25 p-2.5">
+          {([0, 1, 2] as const).map((i) => (
+            <Channel
+              key={i}
+              index={i}
+              label={CHANNEL_LABELS[i]}
+              value={rgb[i]}
+              rgb={rgb}
+              onChange={setChannel}
+            />
+          ))}
 
           <div className="flex items-center gap-2 pt-0.5">
             <span
@@ -150,34 +163,43 @@ function Channel({
   index,
   label,
   value,
-  color,
+  rgb,
   onChange,
 }: {
   index: 0 | 1 | 2
   label: string
   value: number
-  color: string
+  /** 当前三通道值 —— 轨道渐变与滑块色都由它推出来 */
+  rgb: [number, number, number]
   onChange: (i: 0 | 1 | 2, v: number) => void
 }) {
+  /** 把本通道固定成 v、另两个通道保持不动时的颜色 */
+  const at = (v: number) => {
+    const c: [number, number, number] = [...rgb]
+    c[index] = v
+    return `rgb(${c[0]}, ${c[1]}, ${c[2]})`
+  }
+
   return (
     <div className="flex items-center gap-2">
-      <span className="w-3 shrink-0 font-mono text-[11.5px] font-semibold" style={{ color }}>
+      <span className="w-3 shrink-0 font-mono text-[11.5px] font-semibold text-muted-foreground">
         {label}
       </span>
-      <input
-        type="range"
+      <Slider
+        label={`${label} 通道`}
+        value={value}
         min={0}
         max={255}
-        value={value}
-        onChange={(e) => onChange(index, Number(e.target.value))}
-        style={{ accentColor: color }}
-        className="h-4 min-w-0 flex-1 cursor-pointer"
+        gradient={`linear-gradient(to right, ${at(0)}, ${at(255)})`}
+        thumbColor={`rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`}
+        onChange={(v) => onChange(index, v)}
       />
       <input
         type="number"
         min={0}
         max={255}
         value={value}
+        aria-label={`${label} 通道数值`}
         onChange={(e) => onChange(index, Number(e.target.value))}
         className="h-6 w-[52px] shrink-0 rounded-md border border-input/60 bg-card px-1 text-right font-mono text-[11.5px] tabular-nums outline-none focus-visible:border-primary"
       />
