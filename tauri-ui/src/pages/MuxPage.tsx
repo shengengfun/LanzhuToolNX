@@ -99,6 +99,24 @@ function MuxPanel() {
   const [codecs, setCodecs] = React.useState<Record<string, string>>({})
   const patch = (p: Partial<MuxSpec>) => setSpec((s) => ({ ...s, ...p }))
 
+  /**
+   * 选视频时顺手填默认输出名：`1.mp4` -> `1_Mux.mp4`（原版 `txtout.Text`）。
+   * 以前是 `changeExt(v, '.mp4')`，名跟源文件一模一样 —— 一点开始就把源视频覆盖了。
+   */
+  const takeVideo = React.useCallback(
+    async (p: string) => {
+      if (!p) return
+      if (spec.output) {
+        patch({ video: p })
+        return
+      }
+      const out = await api.defaultMuxOutput(p).catch(() => '')
+      patch({ video: p, output: out })
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [spec.output],
+  )
+
   const isRaw = /\.(264|h264|hevc)$/i.test(spec.video)
 
   // 选完视频顺手探一下轨道：用户能直接看到"这些流能不能塞进这个容器"，
@@ -167,15 +185,11 @@ function MuxPanel() {
         <PathRow
           label="视频"
           value={spec.video}
-          onChange={(v) => patch({ video: v, output: spec.output || changeExt(v, '.mp4') })}
+          onChange={(v) => void takeVideo(v)}
           onBrowse={() =>
-            void pickFile('选择视频文件').then(
-              (p) => p && patch({ video: p, output: spec.output || changeExt(p, '.mp4') }),
-            )
+            void pickFile('选择视频文件').then((p) => p && void takeVideo(p))
           }
-          onDropFile={(paths) =>
-            patch({ video: paths[0], output: spec.output || changeExt(paths[0], '.mp4') })
-          }
+          onDropFile={(paths) => void takeVideo(paths[0])}
           placeholder="mp4 / mkv / 裸流(.264/.h264/.hevc)"
         />
         {/* 多音轨：可以一次挂多条外部音轨，顺序就是输出顺序 */}

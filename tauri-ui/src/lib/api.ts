@@ -80,6 +80,25 @@ export const planBatch = (
 ) => call<string[]>('plan_batch', { inputs, spec, audio, outputDir, embedSubtitle }, [])
 
 /* ------------------------------------------------------------------ *
+ * 默认输出文件名（原版写在各 `*_TextChanged` 里，唯一真相在后端）
+ * ------------------------------------------------------------------ */
+
+/** 单文件压制：`<源名>_<h264|hevc|mov|flv|预设名><扩展名>`，重名退到 `_new_file(n)_…`。 */
+export const defaultVideoOutput = (spec: VideoSpec) =>
+  call<string>('default_video_output', { spec }, '')
+
+/** 音频：跟着编码器走（`_AAC.mp4` / `_WAV.wav` / `_FLAC.flac` …）。 */
+export const defaultAudioOutput = (input: string, encoder: number) =>
+  call<string>('default_audio_output', { input, encoder }, '')
+
+/** 封装：`_Mux.mp4`。 */
+export const defaultMuxOutput = (video: string) => call<string>('default_mux_output', { video }, '')
+
+/** AVS：脚本里 `Source("…")` 指到的源文件旁出 `_AVS.mp4`。 */
+export const defaultAvsOutput = (source: string) =>
+  call<string>('default_avs_output', { source }, '')
+
+/* ------------------------------------------------------------------ *
  * 粗剪 / 波形 / 本地素材
  * ------------------------------------------------------------------ */
 

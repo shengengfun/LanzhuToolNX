@@ -169,22 +169,7 @@ fn plan_batch(
         return Err("请先选择输出路径".into());
     }
 
-    let suffix = if spec.mode == 3 && !spec.preset_name.trim().is_empty() {
-        // 预设模式：后缀直接用预设名（去掉不能做文件名的字符），比 "hevc" 清楚得多
-        let s: String = spec
-            .preset_name
-            .chars()
-            .filter(|c| !"\\/:*?\"<>|".contains(*c))
-            .collect();
-        s.replace(' ', "_")
-    } else {
-        match cmd::preset_kind(&spec.format) {
-            cmd::PresetKind::Hevc => "hevc".to_string(),
-            cmd::PresetKind::Mov => "mov".to_string(),
-            cmd::PresetKind::Flv => "flv".to_string(),
-            cmd::PresetKind::H264 => "h264".to_string(),
-        }
-    };
+    let suffix = cmd::video_suffix(&spec);
     let ext = cmd::container_ext(&spec);
 
     let mut all: Vec<String> = Vec::new();
@@ -271,6 +256,49 @@ fn find_subtitle_with(input: &str, lang: &str) -> String {
         }
     }
     String::new()
+}
+
+/* ================================================================== *
+ * 默认输出文件名
+ *
+ * 原版这些规则写在各个 `*_TextChanged` 里，换壳时丢了 —— 表现就是
+ * 「输出名 = 输入名」，点开始会把源文件覆盖掉。规则本体在 `cmd` 里。
+ * ================================================================== */
+
+/// 单文件压制：`<源名>_<h264|hevc|mov|flv|预设名><扩展名>`，重名则退到 `_new_file(n)_…`。
+#[tauri::command(rename_all = "camelCase")]
+fn default_video_output(spec: VideoSpec) -> String {
+    if spec.input.trim().is_empty() {
+        return String::new();
+    }
+    cmd::default_video_output(&spec)
+}
+
+/// 音频：`_AAC.mp4` / `_WAV.wav` / `_FLAC.flac` …… 跟着编码器走。
+#[tauri::command(rename_all = "camelCase")]
+fn default_audio_output(input: String, encoder: usize) -> String {
+    if input.trim().is_empty() {
+        return String::new();
+    }
+    cmd::default_audio_output(&input, encoder)
+}
+
+/// 封装：`_Mux.mp4`。
+#[tauri::command(rename_all = "camelCase")]
+fn default_mux_output(video: String) -> String {
+    if video.trim().is_empty() {
+        return String::new();
+    }
+    cmd::default_mux_output(&video)
+}
+
+/// AVS：脚本里 `Source("…")` 指到的源文件旁出 `_AVS.mp4`。
+#[tauri::command(rename_all = "camelCase")]
+fn default_avs_output(source: String) -> String {
+    if source.trim().is_empty() {
+        return String::new();
+    }
+    cmd::default_avs_output(&source)
 }
 
 /* ================================================================== *
@@ -719,6 +747,10 @@ fn main() {
             make_waveform,
             detect_subtitle,
             media_url,
+            default_video_output,
+            default_audio_output,
+            default_mux_output,
+            default_avs_output,
             run_commands,
             cancel_run,
             pause_run,

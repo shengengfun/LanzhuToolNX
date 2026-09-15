@@ -109,6 +109,95 @@ pub fn audio_ext(encoder: usize) -> &'static str {
     }
 }
 
+/* ------------------------------------------------------------------ *
+ * 默认输出文件名 —— 原版这些规则都写在各个 `*_TextChanged` 里，
+ * 换壳的时候只搬了命令行、把命名丢了，结果是"输出名和输入名一模一样"，
+ * 点开始就会把源文件覆盖掉。这里逐条搬回来。
+ * ------------------------------------------------------------------ */
+
+/// 在源文件旁边拼一个"带后缀"的名字：`<目录>\<文件名><后缀>`。
+///
+/// 后缀是**含扩展名的整段**（如 `_h264.mp4`），因为 `Util.ChangeExt` 就是
+/// 把扩展名整体换掉：`ChangeExt("1.mp4", "_h264.mp4")` → `1_h264.mp4`。
+pub fn beside(input: &str, suffix_with_ext: &str) -> String {
+    let p = std::path::Path::new(input);
+    let stem = p
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".into());
+    let dir = p
+        .parent()
+        .map(|d| d.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    dir.join(format!("{}{}", stem, suffix_with_ext))
+        .to_string_lossy()
+        .to_string()
+}
+
+/// 镜像原版 `GetSelectedVideoOutputSuffix`。
+/// 预设模式（mode 3）用预设名，其余按"压制格式"推。
+pub fn video_suffix(spec: &VideoSpec) -> String {
+    if spec.mode == 3 && !spec.preset_name.trim().is_empty() {
+        let s: String = spec
+            .preset_name
+            .chars()
+            .filter(|c| !"\\/:*?\"<>|".contains(*c))
+            .collect();
+        return s.replace(' ', "_");
+    }
+    match preset_kind(&spec.format) {
+        PresetKind::Hevc => "hevc".to_string(),
+        PresetKind::Mov => "mov".to_string(),
+        PresetKind::Flv => "flv".to_string(),
+        PresetKind::H264 => "h264".to_string(),
+    }
+}
+
+/// 镜像原版 `x264VideoTextBox_TextChanged`：
+/// `1.mp4` --h264--> `1_h264.mp4`；这个名字已被占用时退到
+/// `1_new_file(1)_h264.mp4`、`1_new_file(2)_h264.mp4`……
+pub fn default_video_output(spec: &VideoSpec) -> String {
+    let suffix = video_suffix(spec);
+    let ext = container_ext(spec);
+    let mut out = beside(&spec.input, &format!("_{}{}", suffix, ext));
+
+    let mut n = 1;
+    // 原版的循环条件：等于输入文件、或文件已存在
+    while out.eq_ignore_ascii_case(spec.input.trim()) || std::path::Path::new(&out).exists() {
+        out = beside(
+            &spec.input,
+            &format!("_new_file({})_{}{}", n, suffix, ext),
+        );
+        n += 1;
+    }
+    out
+}
+
+/// 镜像原版 `AudioEncoderComboBox_SelectedIndexChanged` 与音频页刷新用的那张表。
+pub fn default_audio_output(input: &str, encoder: usize) -> String {
+    let suffix = match encoder {
+        0 => "_AAC.mp4",
+        1 => "_AAC.m4a",
+        2 => "_WAV.wav",
+        3 => "_ALAC.m4a",
+        4 => "_FLAC.flac",
+        5 => "_AAC.m4a",
+        6 => "_AC3.ac3",
+        _ => "_AAC.aac",
+    };
+    beside(input, suffix)
+}
+
+/// 镜像原版封装页：`_Mux.mp4`。
+pub fn default_mux_output(video: &str) -> String {
+    beside(video, "_Mux.mp4")
+}
+
+/// 镜像原版 `txtAVS_TextChanged`：从脚本里 `Source("...")` 指到的源文件旁出 `_AVS.mp4`。
+pub fn default_avs_output(source: &str) -> String {
+    beside(source, "_AVS.mp4")
+}
+
 /// 镜像原版 `EscapeFfmpegFilterPath`：subtitles 滤镜用 ':' 分隔参数，
 /// 所以 Windows 盘符的冒号即使加了引号也必须转义。
 fn escape_filter_path(path: &str) -> String {
@@ -1150,6 +1239,82 @@ subtitles='C\\:/sub dir/a.ass',hwupload_cuda\""
             convert_output("C:\\dir\\a.mp4", ".flv", "D:\\out"),
             "D:\\out\\a.flv"
         );
+    }
+
+    /// 原版 `x264VideoTextBox_TextChanged` 的默认输出名。
+    #[test]
+    fn default_video_output_appends_format_suffix() {
+        let mut s = VideoSpec {
+            input: "C:\\__no_such_dir__\\1.mp4".into(),
+            format: "H.264 8bit".into(),
+            ..Default::default()
+        };
+        assert_eq!(default_video_output(&s), "C:\\__no_such_dir__\\1_h264.mp4");
+
+        s.format = "HEVC 10bit".into();
+        assert_eq!(default_video_output(&s), "C:\\__no_such_dir__\\1_hevc.mp4");
+
+        s.format = "MOV".into();
+        assert_eq!(default_video_output(&s), "C:\\__no_such_dir__\\1_mov.mov");
+
+        s.format = "FLV".into();
+        assert_eq!(default_video_output(&s), "C:\\__no_such_dir__\\1_flv.flv");
+
+        // 预设模式：后缀用预设名（去掉非法字符），扩展名跟预设容器
+        s.mode = 3;
+        s.preset_name = "ProRes HQ".into();
+        s.preset_container = "mov".into();
+        assert_eq!(
+            default_video_output(&s),
+            "C:\\__no_such_dir__\\1_ProRes_HQ.mov"
+        );
+    }
+
+    /// 同名文件已存在时要退到 `_new_file(n)_`，不能覆盖（原版的 while 循环）。
+    #[test]
+    fn default_video_output_avoids_overwrite() {
+        let dir = std::env::temp_dir().join("lanzhutool_naming_test");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("v.mp4");
+        std::fs::write(&input, b"x").unwrap();
+        std::fs::write(dir.join("v_h264.mp4"), b"x").unwrap();
+        std::fs::write(dir.join("v_new_file(1)_h264.mp4"), b"x").unwrap();
+
+        let s = VideoSpec {
+            input: input.to_string_lossy().to_string(),
+            format: "H.264 8bit".into(),
+            ..Default::default()
+        };
+        let out = default_video_output(&s);
+        assert_eq!(
+            std::path::Path::new(&out)
+                .file_name()
+                .unwrap()
+                .to_string_lossy(),
+            "v_new_file(2)_h264.mp4"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn default_audio_output_follows_encoder() {
+        let p = "D:\\a\\music.flac";
+        assert_eq!(default_audio_output(p, 0), "D:\\a\\music_AAC.mp4");
+        assert_eq!(default_audio_output(p, 1), "D:\\a\\music_AAC.m4a");
+        assert_eq!(default_audio_output(p, 2), "D:\\a\\music_WAV.wav");
+        assert_eq!(default_audio_output(p, 3), "D:\\a\\music_ALAC.m4a");
+        assert_eq!(default_audio_output(p, 4), "D:\\a\\music_FLAC.flac");
+        assert_eq!(default_audio_output(p, 5), "D:\\a\\music_AAC.m4a");
+        assert_eq!(default_audio_output(p, 6), "D:\\a\\music_AC3.ac3");
+        assert_eq!(default_audio_output(p, 9), "D:\\a\\music_AAC.aac");
+    }
+
+    #[test]
+    fn default_mux_and_avs_suffixes() {
+        assert_eq!(default_mux_output("D:\\a\\1.mp4"), "D:\\a\\1_Mux.mp4");
+        assert_eq!(default_avs_output("D:\\a\\1.mkv"), "D:\\a\\1_AVS.mp4");
     }
 
     #[test]

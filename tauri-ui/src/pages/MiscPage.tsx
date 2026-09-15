@@ -142,12 +142,13 @@ function OnePic({ tools }: { tools: Record<string, string> }) {
             ]).then((p) => {
               if (!p) return
               setImage(p)
-              setOutput((o) => o || changeExt(p, '.mp4'))
+              // 原版一图流输出 `_SP.flv`；这里出 mp4，后缀保持一致
+              setOutput((o) => o || changeExt(p, '_SP.mp4'))
             })
           }
           onDropFile={(paths) => {
             setImage(paths[0])
-            setOutput((o) => o || changeExt(paths[0], '.mp4'))
+            setOutput((o) => o || changeExt(paths[0], '_SP.mp4'))
           }}
         />
         <PathRow

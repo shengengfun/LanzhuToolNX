@@ -54,7 +54,11 @@ export function AvsPage() {
     }
     try {
       await api.writeTextFile(scriptPath, script)
-      const out = video.output || changeExt(scriptPath, '.mp4')
+      // 原版 `txtAVS_TextChanged`：从脚本里 `Source("...")` 抠出源文件，
+      // 在它旁边输出 `<源名>_AVS.mp4`（抠不到就退回脚本自己旁边）。
+      const src = /[Ss]ource\("([A-Za-z]:\\[^"]+?\.\w+)"\)/.exec(script)?.[1] ?? ''
+      const out =
+        video.output || (await api.defaultAvsOutput(src || scriptPath)) || changeExt(scriptPath, '.mp4')
       if (!video.output) patchVideo({ output: out })
       const cmds = await api.planAvs(
         { script, scriptPath, spec: { ...video, input: scriptPath, output: out } },

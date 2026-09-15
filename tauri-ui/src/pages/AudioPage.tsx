@@ -27,6 +27,8 @@ export function AudioPage() {
   const [batch, setBatch] = React.useState<string[]>([])
   const [busy, setBusy] = React.useState(false)
   const [tab, setTab] = React.useState<'transcode' | 'cut'>('transcode')
+  /** 用户是否手动改过输出名。改过就尊重用户，不再自动跟随 */
+  const [outputTouched, setOutputTouched] = React.useState(false)
 
   const encoder = AUDIO_ENCODERS[audio.encoder]
   const presets = AUDIO_PRESETS[encoder] ?? []
@@ -35,10 +37,34 @@ export function AudioPage() {
     setBatch((b) => [...b, ...paths.filter((p) => !b.includes(p))]),
   )
 
+  /**
+   * 自动输出名：跟着输入文件与编码器走。
+   * `music.flac` --AAC(m4a)--> `music_AAC.m4a`，--FLAC--> `music_FLAC.flac`。
+   * 规则在后端（原版 `AudioEncoderComboBox_SelectedIndexChanged` 的那张表），
+   * 以前这里是清空的，等于把自动命名整个丢了。
+   */
+  React.useEffect(() => {
+    if (!audio.input || outputTouched) return
+    let alive = true
+    api
+      .defaultAudioOutput(audio.input, audio.encoder)
+      .then((p) => {
+        if (!alive || !p || p === audio.output) return
+        patchAudio({ output: p })
+      })
+      .catch(() => void 0)
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audio.input, audio.encoder, outputTouched])
+
   const chooseInput = async (forced?: string) => {
     const p = forced ?? (await pickFile('选择音频/视频文件'))
     if (!p) return
-    patchAudio({ input: p, output: audio.output || swapExt(p, EXT[audio.encoder] ?? '.aac') })
+    // 换了文件就重走自动命名
+    setOutputTouched(false)
+    patchAudio({ input: p })
   }
 
   const start = async (input: string, output: string) => {
@@ -67,8 +93,10 @@ export function AudioPage() {
     try {
       const all: string[] = []
       for (const f of batch) {
-        const stem = f.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '')
-        all.push(...(await api.planAudio({ ...audio, input: f, output: `${out}${stem}${EXT[audio.encoder] ?? '.aac'}` })))
+        // 批量也用同一张后缀表：`music_AAC.m4a`，只是把目录换成用户指定的输出目录
+        const named = await api.defaultAudioOutput(f, audio.encoder)
+        const base = named.replace(/^.*[\\/]/, '') || f.replace(/^.*[\\/]/, '')
+        all.push(...(await api.planAudio({ ...audio, input: f, output: `${out}${base}` })))
       }
       await run(all, `批量 ${batch.length} 个`)
     } catch (e) {
@@ -118,13 +146,23 @@ export function AudioPage() {
           <PathRow
             label="输出"
             value={audio.output}
-            onChange={(v) => patchAudio({ output: v })}
+            onChange={(v) => {
+              setOutputTouched(true)
+              patchAudio({ output: v })
+            }}
             onBrowse={() =>
-              void pickSave('选择输出文件', audio.output || `output${EXT[audio.encoder]}`, [
+              void pickSave('选择输出文件', audio.output || `output${EXT[audio.encoder] ?? '.aac'}`, [
                 { name: '音频', extensions: ['m4a', 'aac', 'mp4', 'flac', 'wav', 'ac3'] },
-              ]).then((p) => p && patchAudio({ output: p }))
+              ]).then((p) => {
+                if (!p) return
+                setOutputTouched(true)
+                patchAudio({ output: p })
+              })
             }
-            onDropFile={(paths) => patchAudio({ output: paths[0] })}
+            onDropFile={(paths) => {
+              setOutputTouched(true)
+              patchAudio({ output: paths[0] })
+            }}
           />
         </Card>
 
@@ -274,8 +312,4 @@ export function AudioPage() {
       </div>
     </div>
   )
-}
-
-function swapExt(p: string, ext: string) {
-  return p.replace(/\.[^.\\/]+$/, '') + ext
 }

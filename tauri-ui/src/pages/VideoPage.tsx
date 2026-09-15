@@ -43,7 +43,7 @@ import * as api from '~/lib/api'
 import { AUDIO_BITRATES, DEMUXERS, VIDEO_FORMATS, type EncodePreset, type GpuKind } from '~/lib/types'
 import { allPresets, presetBitrateHint, recommendPresets } from '~/lib/encodePresets'
 import { estimateSize, type SourceMetrics } from '~/lib/estimate'
-import { changeExt, cn, extForFormat, humanSize } from '~/lib/utils'
+import { cn, humanSize } from '~/lib/utils'
 
 export function VideoPage() {
   const {
@@ -188,17 +188,28 @@ export function VideoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [video.input])
 
-  /** 自动输出名：输入 / 格式 / 预设容器变了就跟着走，除非用户自己改过输出框。 */
+  /**
+   * 自动输出名：输入 / 格式 / 预设容器变了就跟着走，除非用户自己改过输出框。
+   *
+   * 名字由后端给（原版 `x264VideoTextBox_TextChanged` 的规则写在 Rust 里）：
+   * `1.mp4` --h264--> `1_h264.mp4`，同名文件已存在时退到 `1_new_file(1)_h264.mp4`。
+   * 绝不再拼成跟源文件同名的——那会直接把源文件覆盖掉。
+   */
   React.useEffect(() => {
     if (!video.input || outputTouched) return
-    const ext =
-      video.mode === 3 && video.presetContainer
-        ? `.${video.presetContainer}`
-        : extForFormat(video.format)
-    const want = changeExt(video.input, ext)
-    if (video.output !== want) patchVideo({ output: want })
+    let alive = true
+    api
+      .defaultVideoOutput(video)
+      .then((p) => {
+        if (!alive || !p || p === video.output) return
+        patchVideo({ output: p })
+      })
+      .catch(() => void 0)
+    return () => {
+      alive = false
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [video.input, video.format, video.mode, video.presetContainer, outputTouched])
+  }, [video.input, video.format, video.mode, video.presetContainer, video.presetName, outputTouched])
 
   /** 选输入视频 */
   const chooseInput = async () => {

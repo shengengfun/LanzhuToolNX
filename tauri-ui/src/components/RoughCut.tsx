@@ -88,7 +88,8 @@ export function RoughCut({ mode }: { mode: RoughCutMode }) {
 
   React.useEffect(() => {
     if (!input || outputTouched) return
-    const want = changeExt(input, ext)
+    // 粗剪是新功能（原版没有），特意不跟源文件同名 —— 否则默认就把原片覆盖了
+    const want = changeExt(input, `_cut${ext}`)
     if (output !== want) setOutput(want)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input, ext, outputTouched])
