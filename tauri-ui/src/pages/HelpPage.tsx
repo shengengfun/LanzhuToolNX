@@ -51,6 +51,7 @@ export function HelpPage() {
           <span>· 视频粗剪：带预览的快速掐头去尾</span>
           <span>· 封装 / 封装转换：多音轨、批量换容器</span>
           <span>· 抽取轨道、AVS 脚本压制、MediaInfo 查看</span>
+          <span>· 插帧超分：RIFE / Real-ESRGAN / Real-CUGAN 本地模型（Vulkan，无需 CUDA）</span>
           <span>· 13 套虹咲角色配色 + 自定义配色与背景图</span>
           <span>· 实时 CPU / GPU / 内存监控与托盘常驻</span>
         </div>
@@ -58,6 +59,14 @@ export function HelpPage() {
 
       <GroupCard title="更新日志">
         <div className="space-y-3 text-[12px] leading-relaxed">
+          <Changelog
+            version="v1.3.5"
+            items={[
+              '新：插帧超分页（在 AVS 之后）。两套引擎：ffmpeg 内置滤镜（minterpolate / lanczos / xBR / hqx，不装任何东西就能用）与本地模型（RIFE 插帧、Real-ESRGAN / Real-CUGAN 超分）',
+              '本地模型走 ncnn + Vulkan，核显也能跑，不需要 CUDA / Python / PyTorch',
+              '设置 → 工具获取新增三个模型包；RIFE 官方包自带 11 个模型共 411MB，安装后自动只留 rife-v4.6 与 rife-anime',
+            ]}
+          />
           <Changelog
             version="v1.3.4"
             items={[
