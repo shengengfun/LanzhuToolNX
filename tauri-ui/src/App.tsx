@@ -12,6 +12,7 @@ import { VideoPage } from './pages/VideoPage'
 import { AudioPage } from './pages/AudioPage'
 import { MuxExtractPage } from './pages/MuxPage'
 import { AvsPage } from './pages/AvsPage'
+import { EnhancePage } from './pages/EnhancePage'
 import { MiscPage } from './pages/MiscPage'
 import { MediaInfoPage } from './pages/MediaInfoPage'
 import { SettingsPage } from './pages/SettingsPage'
@@ -55,6 +56,7 @@ function Shell() {
               {page === 'audio' && <AudioPage />}
               {page === 'mux' && <MuxExtractPage />}
               {page === 'avs' && <AvsPage />}
+              {page === 'enhance' && <EnhancePage />}
               {page === 'misc' && <MiscPage />}
               {page === 'mediainfo' && <MediaInfoPage />}
               {page === 'settings' && <SettingsPage />}

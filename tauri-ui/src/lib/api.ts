@@ -5,9 +5,11 @@ import type {
   AudioSpec,
   AvsSpec,
   BatchMuxSpec,
+  EnhanceSpec,
   ExtractSpec,
   MediaInfo,
   Meme,
+  ModelTool,
   MuxSpec,
   SysStats,
   ToolPackage,
@@ -69,6 +71,17 @@ export const planExtract = (s: ExtractSpec) => call<string[]>('plan_extract', { 
 
 export const planAvs = (s: AvsSpec, audio: AudioSpec) =>
   call<string[]>('plan_avs', { spec: s, audio }, [])
+
+/** 插帧 / 超分。源帧率与分辨率由后端现探，前端不用传。 */
+export const planEnhance = (spec: EnhanceSpec) => call<string[]>('plan_enhance', { spec }, [])
+
+/** 插帧 / 超分：`<源名>_rife2x_cugan2x.mp4`（重名退到 `_new_file(n)`）。 */
+export const defaultEnhanceOutput = (spec: EnhanceSpec) =>
+  call<string>('default_enhance_output', { spec }, '')
+
+/** 三个本地模型工具装没装、各自有哪些权重。 */
+export const enhanceTools = () => call<ModelTool[]>('enhance_tools', {}, [])
+
 
 /** 批量：每个文件一条独立流水线，后端串成一个大脚本。 */
 export const planBatch = (

@@ -302,6 +302,176 @@ fn default_avs_output(source: String) -> String {
 }
 
 /* ================================================================== *
+ * 插帧 / 超分
+ * ================================================================== */
+
+/// 拼插帧 / 超分的命令行。
+///
+/// 源信息（帧率 / 分辨率 / 有无音轨）在这里现探：这些值直接决定命令怎么拼
+/// （`minterpolate` 要源帧率、`scale` 要源分辨率、音轨要不要 `-map`），
+/// 让前端把探测结果传回来反而多一条可能不一致的路径。
+#[tauri::command(rename_all = "camelCase")]
+fn plan_enhance(spec: EnhanceSpec) -> Result<Vec<String>, String> {
+    let tools = tools_dir();
+    if spec.input.trim().is_empty() {
+        return Err("请先选择要处理的视频".into());
+    }
+    if spec.output.trim().is_empty() {
+        return Err("请先指定输出文件".into());
+    }
+    if !spec.interp && !spec.upscale {
+        return Err("插帧和超分至少要开一个".into());
+    }
+
+    let info = probe::probe(&tools, &spec.input);
+    if !info.exists {
+        return Err("源文件不存在或无法读取".into());
+    }
+    let v = info.video.unwrap_or_default();
+    let src = cmd::EnhanceSource {
+        fps: v.fps,
+        width: v.width,
+        height: v.height,
+        has_audio: info.audio.is_some(),
+    };
+
+    let lines = cmd::enhance_pipeline(&spec, &src, &tools, &temp_dir());
+    if lines.is_empty() {
+        return Err("没有可执行的步骤：请选择插帧或超分的引擎".into());
+    }
+    Ok(lines)
+}
+
+/// 插帧 / 超分的默认输出：源文件旁边（重名会退到 `_new_file(n)`）。
+#[tauri::command(rename_all = "camelCase")]
+fn default_enhance_output(spec: EnhanceSpec) -> String {
+    if spec.input.trim().is_empty() {
+        return String::new();
+    }
+    cmd::default_enhance_output(&spec)
+}
+
+/// 扫出跟某个可执行文件同级的子目录（权重目录都不是可执行文件，只能扫）。
+fn scan_subdirs(dir: &std::path::Path, prefix: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            if !e.path().is_dir() {
+                continue;
+            }
+            if let Some(n) = e.file_name().to_str() {
+                if n.to_lowercase().starts_with(prefix) {
+                    out.push(n.to_string());
+                }
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// 扫 `models/*.param` 得到 realesrgan 的模型名。
+/// 文件名形如 `realesr-animevideov3-x2.param`，要先把 `-x2` 这次级后缀去掉。
+fn scan_esr_models(dir: &std::path::Path) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let Some(name) = e.file_name().to_str().map(|s| s.to_string()) else {
+                continue;
+            };
+            let Some(stem) = name.strip_suffix(".param") else {
+                continue;
+            };
+            let base = match stem.rsplit_once("-x") {
+                Some((b, s)) if s.len() == 1 && s.chars().all(|c| c.is_ascii_digit()) => b,
+                _ => stem,
+            };
+            if !out.iter().any(|x| x == base) {
+                out.push(base.to_string());
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+fn model_tool(tools: &str, exe_name: &str, id: &str, name: &str, hint: &str) -> (spec::ModelTool, std::path::PathBuf) {
+    let path = tools::tool(tools, exe_name);
+    let p = std::path::PathBuf::from(&path);
+    let ok = p.is_file();
+    let dir = p
+        .parent()
+        .map(|d| d.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    (
+        spec::ModelTool {
+            id: id.into(),
+            name: name.into(),
+            exe: if ok { path } else { String::new() },
+            models: Vec::new(),
+            custom_frames: Vec::new(),
+            hint: hint.into(),
+        },
+        dir,
+    )
+}
+
+/// 探测三个本地模型工具是否就绪，以及各自有哪些权重。
+///
+/// 只认「可执行文件同级目录」这个约定（就是官方发布的压缩包解出来的形状），
+/// 所以用户把 zip 原样解到 tools/ 下就能被认出来，不需要手工整理。
+#[tauri::command(rename_all = "camelCase")]
+fn enhance_tools() -> Vec<spec::ModelTool> {
+    let tools = tools_dir();
+    let mut out = Vec::new();
+
+    let (mut rife, rife_dir) = model_tool(
+        &tools,
+        "rife-ncnn-vulkan.exe",
+        "rife",
+        "RIFE（插帧）",
+        "任意 Vulkan 显卡都能跑，不需要 CUDA；2 倍插帧时不传 -n，因此 rife-anime 也能用",
+    );
+    if !rife.exe.is_empty() {
+        rife.models = scan_subdirs(&rife_dir, "rife");
+        // rife 的源码里是 `model.find("rife-v4")` 才允许自定义帧数
+        rife.custom_frames = rife
+            .models
+            .iter()
+            .filter(|m| m.contains("rife-v4"))
+            .cloned()
+            .collect();
+    }
+    out.push(rife);
+
+    let (mut esr, esr_dir) = model_tool(
+        &tools,
+        "realesrgan-ncnn-vulkan.exe",
+        "realesrgan",
+        "Real-ESRGAN（超分）",
+        "通用/动画两套权重；realesrgan-x4plus 系只有 4 倍",
+    );
+    if !esr.exe.is_empty() {
+        esr.models = scan_esr_models(&esr_dir.join("models"));
+    }
+    out.push(esr);
+
+    let (mut cugan, cugan_dir) = model_tool(
+        &tools,
+        "realcugan-ncnn-vulkan.exe",
+        "realcugan",
+        "Real-CUGAN（超分）",
+        "动画向，带降噪；models-se 最均衡，models-nose 只有 2 倍",
+    );
+    if !cugan.exe.is_empty() {
+        cugan.models = scan_subdirs(&cugan_dir, "models");
+    }
+    out.push(cugan);
+
+    out
+}
+
+/* ================================================================== *
  * 执行
  * ================================================================== */
 
@@ -741,6 +911,7 @@ fn main() {
             plan_mux,
             plan_extract,
             plan_avs,
+            plan_enhance,
             plan_batch,
             plan_trim,
             plan_batch_mux,
@@ -751,6 +922,8 @@ fn main() {
             default_audio_output,
             default_mux_output,
             default_avs_output,
+            default_enhance_output,
+            enhance_tools,
             run_commands,
             cancel_run,
             pause_run,

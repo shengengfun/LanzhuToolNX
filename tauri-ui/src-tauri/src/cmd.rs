@@ -11,7 +11,7 @@
 //!
 //! 每个函数末尾都补 `\r\n`，和原版一致（原版把多行命令喂给 WorkingForm 再写进 .bat）。
 
-use crate::spec::{AudioSpec, ExtractSpec, MuxSpec, TrimSpec, VideoSpec};
+use crate::spec::{AudioSpec, EnhanceSpec, ExtractSpec, MuxSpec, TrimSpec, VideoSpec};
 use crate::tools::{quote, tool};
 
 /// 数字去掉多余的小数尾巴：`23.5` → "23.5"、`800.0` → "800"。
@@ -901,6 +901,440 @@ pub fn trim(spec: &TrimSpec, tools: &str) -> String {
     sb
 }
 
+/* ================================================================== *
+ * 插帧 / 超分
+ *
+ * ⚠️ 这一块**不是**原版的镜像 —— 原版没有这个功能，规则是从零定的。
+ *
+ * 两条路：
+ *   1. 纯滤镜：一条 ffmpeg 命令搞定（`minterpolate` / `scale` / `xbr`）。
+ *   2. 本地模型：`rife` / `realesrgan` / `realcugan` 三个 ncnn-vulkan 程序。
+ *      它们只吃**图片序列**，所以必须 拆帧 → 推理 → 合帧 三趟。
+ *
+ * 踩过的两个坑（都是实测出来的，别改回去）：
+ *   - **`.bat` 里写 `%08d` 会被 cmd 当成 `%0` 展开**，变成
+ *     `...\lanzhutool_123.bat8d.png`。图片序列模式必须写 `%%08d`。
+ *     同理 `for %%A in (...)` 也要双百分号。
+ *   - 模型的 `-o` **目录必须事先存在**，否则 rife 会以为那是文件名、
+ *     去猜扩展名然后报 `invalid outputpath extension type`。
+ *     所以每条模型命令前面都先 `if not exist ... mkdir ...`。
+ * ================================================================== */
+
+/// 流水线要知道的源信息（由 [`crate::probe`] 探好后传进来）。
+pub struct EnhanceSource {
+    pub fps: f64,
+    pub width: i64,
+    pub height: i64,
+    pub has_audio: bool,
+}
+
+/// 帧率的命令行写法：`47.952` / `60`。
+/// 先按 3 位小数收一下，免得把 `47.952000000000001` 这种浮点尾巴写进命令行。
+fn fps_text(v: f64) -> String {
+    n((v * 1000.0).round() / 1000.0)
+}
+
+/// yuv420p 要求宽高都是偶数，多出来的那一行/列直接抹掉。
+fn even(v: i64) -> i64 {
+    v & !1
+}
+
+fn gcd(a: i64, b: i64) -> i64 {
+    if b == 0 {
+        if a == 0 { 1 } else { a.abs() }
+    } else {
+        gcd(b, a % b)
+    }
+}
+
+/// 把 `60/23.976` 约成 `2503/1000`。
+///
+/// 为什么要约分：帧数是在 **.bat 里用 `set /a` 算的**，而 cmd 的整数是
+/// 32 位的。`帧数 × 60000` 对一部两小时的片子就直接溢出了，
+/// 约分之后乘数控制在几百，实际能撑到几十万帧。
+fn reduce(mut a: i64, mut b: i64) -> (i64, i64) {
+    if a == 0 || b == 0 {
+        return (2, 1);
+    }
+    let g = gcd(a, b);
+    a /= g;
+    b /= g;
+    (a, b)
+}
+
+/// 插帧之后的帧率。`interp_fps > 0` 时以它为准，否则按倍数推。
+fn interp_target(spec: &EnhanceSpec, src_fps: f64) -> f64 {
+    if !spec.interp {
+        return src_fps;
+    }
+    if spec.interp_fps > 0.0 {
+        spec.interp_fps
+    } else {
+        src_fps * spec.interp_mult.max(1.0)
+    }
+}
+
+/// 目标尺寸：用户指定优先，否则「源尺寸 × 倍数」，两者都抹成偶数。
+/// 返回 `(0, 0)` 表示源尺寸也未知（极少见，这时退回 `iw*2` 那种表达式）。
+fn target_size(spec: &EnhanceSpec, w: i64, h: i64, mult: f64) -> (i64, i64) {
+    if spec.width > 0 && spec.height > 0 {
+        return (even(spec.width).max(2), even(spec.height).max(2));
+    }
+    if w > 0 && h > 0 {
+        let tw = (w as f64 * mult).round() as i64;
+        let th = (h as f64 * mult).round() as i64;
+        return (even(tw).max(2), even(th).max(2));
+    }
+    (0, 0)
+}
+
+/// `scale` 滤镜。源尺寸已知就把数字算死（可读、可断言），
+/// 不知道才用表达式，并且用 `trunc(.../2)*2` 把结果钳成偶数。
+fn scale_filter(w: i64, h: i64, flags: &str) -> String {
+    if w > 0 && h > 0 {
+        format!("scale={}:{}:flags={}", w, h, flags)
+    } else {
+        format!("scale=trunc(iw/2)*2:trunc(ih/2)*2:flags={}", flags)
+    }
+}
+
+/// 内置插帧：`minterpolate`。
+///
+/// `mci` 是运动补偿插值（真正"算"出中间帧），另外两个模式
+/// （`blend` 混帧、`dup` 复制帧）只是给个对照，画质差但快得多。
+fn minterpolate_filter(spec: &EnhanceSpec, fps: f64) -> String {
+    let mode = match spec.interp_mode.trim() {
+        "blend" => "blend",
+        "dup" => "dup",
+        _ => "mci",
+    };
+    if mode == "mci" {
+        format!(
+            "minterpolate=fps={}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1",
+            fps_text(fps)
+        )
+    } else {
+        format!("minterpolate=fps={}:mi_mode={}", fps_text(fps), mode)
+    }
+}
+
+/// 内置超分。只有这三个走滤镜；其余（realesrgan / realcugan）是本地模型，返回 `None`。
+///
+/// `xbr` / `hqx` 是给**动画线条和像素画**用的：它们的输出是"硬边"的，
+/// 真人影片上会显得很脏 —— 所以界面上的说明必须写清楚。
+/// `nnedi` 看着最合适（神经网络边缘插值），但 ffmpeg 的 nnedi 滤镜
+/// 要求外挂 `nnedi3_weights.bin`，本机实测报 `No weights file provided,
+/// aborting!` —— 不想为它多带一个权重文件，所以没做进来。
+fn builtin_upscale(spec: &EnhanceSpec, w: i64, h: i64, mult: f64) -> Option<String> {
+    let m = (mult.round() as i64).clamp(2, 4);
+    match spec.upscale_engine.trim() {
+        "xbr" => Some(format!("xbr=n={}", m)),
+        "hqx" => Some(format!("hqx={}", m)),
+        "lanczos" => {
+            let (tw, th) = target_size(spec, w, h, mult);
+            Some(scale_filter(tw, th, "lanczos"))
+        }
+        _ => None,
+    }
+}
+
+/// 编码器 + 参数。前端给一组预设（`lib/enhancePresets.ts`），
+/// 后端只负责原样拼；两个字段都空时按容器给一份能用的默认值。
+fn enhance_encode_args(spec: &EnhanceSpec) -> String {
+    let enc = if spec.encoder.trim().is_empty() {
+        if spec.container.eq_ignore_ascii_case("mkv") {
+            "libx265"
+        } else {
+            "libx264"
+        }
+    } else {
+        spec.encoder.trim()
+    };
+    let params = if spec.encode_params.trim().is_empty() {
+        if enc.contains("x265") {
+            "-crf 20 -preset medium -pix_fmt yuv420p"
+        } else {
+            "-crf 18 -preset medium -pix_fmt yuv420p"
+        }
+    } else {
+        spec.encode_params.trim()
+    };
+    format!("-c:v {} {}", enc, params)
+}
+
+/// 音轨参数。`has_audio = false` 时无论如何都是 `-an`。
+fn enhance_audio_args(spec: &EnhanceSpec, has_audio: bool) -> &'static str {
+    if !has_audio || spec.audio == "none" {
+        "-an"
+    } else if spec.audio == "aac" {
+        "-c:a aac -b:a 192k"
+    } else {
+        "-c:a copy"
+    }
+}
+
+/// 输出文件名后缀：把用到的引擎和倍数压进去，一眼看得出这条片子经过了什么。
+/// `1.mp4` → `1_rife2x_cugan2x.mp4`，指定了目标帧率时写成 `_rife60fps_…`。
+pub fn enhance_suffix(spec: &EnhanceSpec) -> String {
+    let mut s = String::new();
+    if spec.interp {
+        let tag = if spec.interp_engine.trim() == "rife" {
+            "rife"
+        } else {
+            "fi"
+        };
+        let v = if spec.interp_fps > 0.0 {
+            format!("{}fps", fps_text(spec.interp_fps))
+        } else {
+            format!("{}x", n(spec.interp_mult))
+        };
+        s.push_str(&format!("_{}{}", tag, v));
+    }
+    if spec.upscale {
+        let tag = match spec.upscale_engine.trim() {
+            "realesrgan" => "esr",
+            "realcugan" => "cugan",
+            other if !other.is_empty() => other,
+            _ => "up",
+        };
+        s.push_str(&format!("_{}{}x", tag, n(spec.upscale_mult)));
+    }
+    s
+}
+
+/// 默认输出：源文件旁边 `<源名><后缀>.<容器>`，重名退到 `_new_file(n)`。
+/// 和 [`default_video_output`] 同一套规则 —— 绝不能和输入同名。
+pub fn default_enhance_output(spec: &EnhanceSpec) -> String {
+    let suffix = enhance_suffix(spec);
+    let ext = {
+        let e = spec.container.trim().trim_start_matches('.').to_lowercase();
+        if e.is_empty() { "mp4".to_string() } else { e }
+    };
+    let mut out = beside(&spec.input, &format!("{}.{}", suffix, ext));
+    let mut i = 1;
+    while out.eq_ignore_ascii_case(spec.input.trim()) || std::path::Path::new(&out).exists() {
+        out = beside(
+            &spec.input,
+            &format!("_new_file({}){}.{}", i, suffix, ext),
+        );
+        i += 1;
+    }
+    out
+}
+
+/// 插帧 / 超分流水线。返回**逐行**的命令（和 `plan_*` 的约定一致）。
+pub fn enhance_pipeline(
+    spec: &EnhanceSpec,
+    src: &EnhanceSource,
+    tools: &str,
+    temp_dir: &str,
+) -> Vec<String> {
+    let input = spec.input.trim();
+    let output = spec.output.trim();
+    let ffmpeg = quote(&tool(tools, "ffmpeg.exe"));
+    let src_fps = if src.fps > 0.0 { src.fps } else { 25.0 };
+
+    let want_interp = spec.interp && !spec.interp_engine.trim().is_empty();
+    let want_up = spec.upscale && !spec.upscale_engine.trim().is_empty();
+    let out_fps = if want_interp { interp_target(spec, src_fps) } else { src_fps };
+    let up_mult = if want_up { spec.upscale_mult.max(1.0) } else { 1.0 };
+
+    let use_rife = want_interp && spec.interp_engine.trim() == "rife";
+    let use_gan = want_up && matches!(spec.upscale_engine.trim(), "realesrgan" | "realcugan");
+    let audio = enhance_audio_args(spec, src.has_audio);
+    let enc = enhance_encode_args(spec);
+    let mut lines: Vec<String> = Vec::new();
+
+    /* ---------------- 纯滤镜：一条命令 ---------------- */
+    if !use_rife && !use_gan {
+        let mut filters: Vec<String> = Vec::new();
+        if want_interp {
+            filters.push(minterpolate_filter(spec, out_fps));
+        }
+        if want_up {
+            if let Some(f) = builtin_upscale(spec, src.width, src.height, up_mult) {
+                filters.push(f);
+            }
+        }
+        if filters.is_empty() {
+            return lines;
+        }
+
+        lines.push(format!("rem ===== 插帧 / 超分（内置滤镜）====="));
+        let mut c = format!(
+            "{} -y -i \"{}\" -sn -vf \"{}\" {}",
+            ffmpeg,
+            input,
+            filters.join(","),
+            enc
+        );
+        c.push_str(&format!(" {} \"{}\"", audio, output));
+        lines.push(c);
+        lines.push("echo ===== one file is completed! =====".into());
+        return lines;
+    }
+
+    /* ---------------- 本地模型：拆帧 → 推理 → 合帧 ---------------- */
+    let stem = std::path::Path::new(input)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "clip".into());
+    let work = std::path::Path::new(temp_dir)
+        .join(format!("{}_enh", stem))
+        .to_string_lossy()
+        .to_string();
+    let frames = format!("{}\\f", work);
+    let interp = format!("{}\\i", work);
+    let sr = format!("{}\\s", work);
+
+    lines.push("rem ===== 插帧 / 超分（本地模型）=====".into());
+    lines.push(format!("if not exist \"{}\" mkdir \"{}\"", temp_dir, temp_dir));
+    // 先清空工作目录：上一次跑到一半被终止的话，里面还留着旧的 PNG，
+    // 数出来的帧数会偏大，rife 也会把那些陈旧帧一起插进去。
+    lines.push(format!("if exist \"{}\" rmdir /s /q \"{}\"", work, work));
+    lines.push(format!("if not exist \"{}\" mkdir \"{}\"", work, work));
+    lines.push(format!("if not exist \"{}\" mkdir \"{}\"", frames, frames));
+
+    // 抽帧。`%%08d` 不能被简化成 `%08d`（见文件头注释）。
+    lines.push(format!(
+        "{} -y -i \"{}\" -vsync 0 -pix_fmt rgb24 \"{}\\%%08d.png\"",
+        ffmpeg, input, frames
+    ));
+
+    // 中间帧序列目录，逐级往下传
+    let mut seq_dir = frames.clone();
+
+    if use_rife {
+        lines.push(format!("if not exist \"{}\" mkdir \"{}\"", interp, interp));
+        let model_dir = quote(&model_dir(tools, "rife-ncnn-vulkan.exe", spec.interp_model.trim()));
+
+        // rife 的 `-n` 是**目标总帧数**，默认 = 输入帧数 × 2。
+        // 只有 rife-v4 系模型支持自定义 `-n`，所以 2 倍这条路故意不传 `-n`，
+        // 这样 rife-anime（v1.8）也能用。
+        let exact_2x = (out_fps - src_fps * 2.0).abs() < 0.005;
+        let mut n_flag = String::new();
+        if !exact_2x {
+            let (num, den) = reduce((out_fps * 1000.0).round() as i64, (src_fps * 1000.0).round() as i64);
+            // 用 Path::join 拼通配符：手写反斜杠在 Rust 字符串里要写 `\\`，
+            // 而这个字符串最后还要给 cmd 看，两层转义叠在一起极容易写错。
+            let glob = std::path::Path::new(&frames)
+                .join("*.png")
+                .to_string_lossy()
+                .to_string();
+            lines.push("set /a LC=0".into());
+            lines.push(format!("for %%A in (\"{}\") do set /a LC+=1", glob));
+            // 向上取整：ceil(LC*num/den) = (LC*num + den - 1) / den。
+            // cmd 的 `set /a` 是截断除法，不补这个 `den-1` 会少算最后一帧；
+            // `den-1` 先在这里算好，免得 .bat 里出现 `+2-1` 这种碍眼的写法。
+            lines.push(format!("set /a LT=(LC*{}+{})/{}", num, den - 1, den));
+            n_flag = " -n %LT%".to_string();
+        }
+
+        let mut c = format!(
+            "{} -i \"{}\" -o \"{}\" -m {}{} -g {}{}",
+            quote(&tool(tools, "rife-ncnn-vulkan.exe")),
+            frames,
+            interp,
+            model_dir,
+            n_flag,
+            spec.gpu_index,
+            jobs_flag(&spec.jobs)
+        );
+        if spec.interp_tta {
+            c.push_str(" -x");
+        }
+        lines.push(c);
+        seq_dir = interp;
+    }
+
+    if use_gan {
+        lines.push(format!("if not exist \"{}\" mkdir \"{}\"", sr, sr));
+        let mult = (up_mult.round() as i64).clamp(2, 4);
+        if spec.upscale_engine.trim() == "realesrgan" {
+            lines.push(format!(
+                "{} -i \"{}\" -o \"{}\" -s {} -n {} -m {} -g {}{}",
+                quote(&tool(tools, "realesrgan-ncnn-vulkan.exe")),
+                seq_dir,
+                sr,
+                mult,
+                spec.upscale_model.trim(),
+                quote(&model_dir(tools, "realesrgan-ncnn-vulkan.exe", "models")),
+                spec.gpu_index,
+                jobs_flag(&spec.jobs)
+            ));
+        } else {
+            // realcugan 的 `-s` 配合模型目录里的文件（up2x/up3x/up4x）一起生效
+            lines.push(format!(
+                "{} -i \"{}\" -o \"{}\" -s {} -n {} -m {} -g {}{}",
+                quote(&tool(tools, "realcugan-ncnn-vulkan.exe")),
+                seq_dir,
+                sr,
+                mult,
+                spec.cugan_denoise,
+                quote(&model_dir(tools, "realcugan-ncnn-vulkan.exe", spec.cugan_model.trim())),
+                spec.gpu_index,
+                jobs_flag(&spec.jobs)
+            ));
+        }
+        seq_dir = sr;
+    }
+
+    // 合帧 + 音轨。帧数正好是"倍数"倍，所以 `-framerate` 直接给算好的帧率。
+    let mut vf = String::new();
+    if want_up && !use_gan {
+        // 走了模型超分就不要再 scale（模型已经给足尺寸）
+        if let Some(f) = builtin_upscale(spec, src.width, src.height, up_mult) {
+            vf = format!(" -vf \"{}\"", f);
+        }
+    } else if use_gan && spec.width > 0 && spec.height > 0 {
+        // 模型放大之后再收口到用户指定的分辨率
+        let (tw, th) = target_size(spec, 0, 0, 1.0);
+        vf = format!(" -vf \"{}\"", scale_filter(tw, th, "lanczos"));
+    }
+
+    lines.push(format!(
+        "{} -y -framerate {} -i \"{}\\%%08d.png\" -i \"{}\" -map 0:v:0 -map 1:a:0? -sn{} {} {} \"{}\"",
+        ffmpeg,
+        fps_text(out_fps),
+        seq_dir,
+        input,
+        vf,
+        enc,
+        audio,
+        output
+    ));
+
+    lines.push(format!("rmdir /s /q \"{}\"", work));
+    lines.push("echo ===== one file is completed! =====".into());
+    lines
+}
+
+/// `-j load:proc:save`，留空就不传（模型自带默认值）。
+fn jobs_flag(jobs: &str) -> String {
+    let j = jobs.trim();
+    // 只接受 `a:b:c` 这种形状，别把界面上的手滑原样送进命令行
+    let ok = j.split(':').count() == 3 && j.split(':').all(|p| p.parse::<u32>().is_ok());
+    if ok {
+        format!(" -j {}", j)
+    } else {
+        String::new()
+    }
+}
+
+/// 模型目录：**和可执行文件同级**。
+///
+/// 注意不要用 tools 根去拼 —— 压缩包解出来是
+/// `tools/video/enhance/<工具目录>/`，权重就躺在 exe 旁边，
+/// 而 `tools/models` 根本不存在。
+fn model_dir(tools: &str, exe_name: &str, rel: &str) -> String {
+    let exe = tool(tools, exe_name);
+    let base = std::path::Path::new(&exe)
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    base.join(rel).to_string_lossy().to_string()
+}
+
 /// 秒 -> 命令行数字（去掉多余的 0，避免出现 `-ss 12.000`）
 fn secs(v: f64) -> String {
     let s = format!("{:.3}", v);
@@ -915,7 +1349,7 @@ fn secs(v: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::spec::{AudioSpec, TrimSpec, VideoSpec};
+    use crate::spec::{AudioSpec, EnhanceSpec, TrimSpec, VideoSpec};
 
     /// 指向一个不存在的目录，让 `tool()` 原样返回工具名，
     /// 这样断言就是机器无关的（否则会带出本机 tools 的绝对路径）。
@@ -1453,5 +1887,335 @@ subtitles='C\\:/sub dir/a.ass',hwupload_cuda\""
         assert!(c.contains(" -vn"));
         assert!(c.contains(" -c copy"));
         assert!(!c.contains("libx264"));
+    }
+
+    /* ============================================================== *
+     * 插帧 / 超分
+     * ============================================================== */
+
+    /// `%08d` 在 .bat 里会被 cmd 当成 `%0` 展开成脚本自己的路径
+    /// （实测：`...\lanzhutool_123.bat8d.png`）。
+    /// 所以图片序列模式必须写 `%%08d`；把双百分号摘掉后还能找到单百分号 = 有地方写漏了。
+    fn has_unescaped_percent(s: &str) -> bool {
+        s.replace("%%08d", "").contains("%08d")
+    }
+
+    fn src_1080() -> EnhanceSource {
+        EnhanceSource {
+            fps: 23.976,
+            width: 1920,
+            height: 1080,
+            has_audio: true,
+        }
+    }
+
+    /// 两边都是内置滤镜 → 一条命令搞定，连临时文件都不需要。
+    #[test]
+    fn enhance_builtin_is_a_single_command() {
+        let spec = EnhanceSpec {
+            input: "in.mp4".into(),
+            output: "out.mp4".into(),
+            interp: true,
+            interp_engine: "minterpolate".into(),
+            // 0 = 按倍数推（23.976 × 2 = 47.952）
+            interp_fps: 0.0,
+            interp_mult: 2.0,
+            upscale: true,
+            upscale_engine: "lanczos".into(),
+            upscale_mult: 2.0,
+            ..Default::default()
+        };
+        let src = EnhanceSource {
+            fps: 23.976,
+            width: 640,
+            height: 480,
+            has_audio: true,
+        };
+        let lines = enhance_pipeline(&spec, &src, T, "C:\\TEMP");
+
+        assert_eq!(lines.len(), 3, "{:?}", lines);
+        assert_eq!(
+            lines[1],
+            "\"ffmpeg.exe\" -y -i \"in.mp4\" -sn -vf \"\
+minterpolate=fps=47.952:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,\
+scale=1280:960:flags=lanczos\" \
+-c:v libx264 -crf 18 -preset medium -pix_fmt yuv420p -c:a copy \"out.mp4\""
+        );
+        // 内置路径不拆帧，不该出现任何图片序列占位符
+        assert!(!lines[1].contains("%08d"), "{}", lines[1]);
+    }
+
+    /// 只开超分时不该塞插帧滤镜；`blend` 模式不能带 mci 的那几个参数。
+    #[test]
+    fn enhance_filter_chain_reflects_enabled_steps() {
+        let mut spec = EnhanceSpec {
+            input: "in.mkv".into(),
+            output: "out.mkv".into(),
+            upscale: true,
+            upscale_engine: "xbr".into(),
+            upscale_mult: 2.0,
+            ..Default::default()
+        };
+        let lines = enhance_pipeline(&spec, &src_1080(), T, "C:\\TEMP");
+        assert!(lines[1].contains("-vf \"xbr=n=2\""), "{}", lines[1]);
+        assert!(!lines[1].contains("minterpolate"), "{}", lines[1]);
+
+        spec.interp = true;
+        spec.interp_engine = "minterpolate".into();
+        spec.interp_mode = "blend".into();
+        spec.interp_fps = 60.0;
+        let lines = enhance_pipeline(&spec, &src_1080(), T, "C:\\TEMP");
+        assert!(
+            lines[1].contains("-vf \"minterpolate=fps=60:mi_mode=blend,xbr=n=2\""),
+            "{}",
+            lines[1]
+        );
+        assert!(!lines[1].contains("mc_mode"), "blend 模式不该带运动补偿参数");
+    }
+
+    /// 本地模型：拆帧 → 插帧 → 超分 → 合帧，顺序固定；每一步的输出目录都要先建。
+    #[test]
+    fn enhance_model_pipeline_creates_dirs_and_escapes_percent() {
+        let spec = EnhanceSpec {
+            input: "C:\\in\\clip.mp4".into(),
+            output: "C:\\in\\clip_rife2x_cugan2x.mp4".into(),
+            interp: true,
+            interp_engine: "rife".into(),
+            interp_fps: 0.0,
+            interp_mult: 2.0,
+            upscale: true,
+            upscale_engine: "realcugan".into(),
+            upscale_mult: 2.0,
+            cugan_model: "models-se".into(),
+            ..Default::default()
+        };
+        let lines = enhance_pipeline(&spec, &src_1080(), T, "C:\\TEMP");
+        let text = lines.join("\n");
+
+        assert!(
+            !has_unescaped_percent(&text),
+            "图片序列必须写 %%08d，否则 cmd 会把 %0 展开成脚本路径：\n{}",
+            text
+        );
+        assert!(
+            text.contains("C:\\TEMP\\clip_enh\\f\\%%08d.png"),
+            "抽帧路径不对:\n{}",
+            text
+        );
+
+        let i_frames = lines.iter().position(|l| l.contains("clip_enh\\f\\%%08d.png")).unwrap();
+        let i_rife = lines.iter().position(|l| l.contains("rife-ncnn-vulkan.exe")).unwrap();
+        let i_cugan = lines.iter().position(|l| l.contains("realcugan-ncnn-vulkan.exe")).unwrap();
+        let i_encode = lines.iter().position(|l| l.contains("-framerate")).unwrap();
+        assert!(i_frames < i_rife, "先拆帧再插帧:\n{}", text);
+        assert!(i_rife < i_cugan, "先插帧再超分:\n{}", text);
+        assert!(i_cugan < i_encode, "最后才合帧:\n{}", text);
+
+        // 输出目录必须先存在，否则 rife 报 "invalid outputpath extension type"
+        for (line_no, dir) in [
+            (i_rife, "clip_enh\\i"),
+            (i_cugan, "clip_enh\\s"),
+        ] {
+            let mkdir = lines
+                .iter()
+                .take(line_no)
+                .any(|l| l.starts_with("if not exist") && l.contains(dir));
+            assert!(mkdir, "{} 之前没有 mkdir:\n{}", dir, text);
+        }
+
+        // 2 倍是 rife 的默认行为，故意不传 -n（这样 rife-anime 那种非 v4 模型也能用）。
+        // 注意只看 rife 那一行 —— realcugan 的降噪参数恰好也叫 `-n`。
+        let rife_line = &lines[i_rife];
+        assert!(!rife_line.contains(" -n "), "2 倍不该传 -n: {}", rife_line);
+        assert!(!text.contains("set /a"), "不需要数帧数:\n{}", text);
+
+        // 合帧：帧率是算好的，音轨从第 2 个输入拿
+        assert!(text.contains("-framerate 47.952"), "{}", text);
+        assert!(text.contains("-map 0:v:0 -map 1:a:0?"), "{}", text);
+        assert!(text.contains("-c:a copy"), "{}", text);
+
+        // 上一轮跑到一半被终止的话会留下旧 PNG，数帧/插帧都会错，必须先清空
+        let i_clean = lines
+            .iter()
+            .position(|l| l.contains("rmdir /s /q") && l.contains("clip_enh\""))
+            .expect("缺少清理工作目录的步骤");
+        assert!(i_clean < i_frames, "清理必须发生在抽帧之前:\n{}", text);
+        assert!(lines.last().unwrap().contains("one file is completed"), "{}", text);
+    }
+
+    /// 自定义目标帧率：只能数出实际帧数再算，`-n` 是**目标总帧数**。
+    #[test]
+    fn enhance_rife_custom_fps_counts_frames() {
+        let spec = EnhanceSpec {
+            input: "in.mp4".into(),
+            output: "out.mp4".into(),
+            interp: true,
+            interp_engine: "rife".into(),
+            interp_fps: 60.0,
+            upscale: false,
+            audio: "none".into(),
+            ..Default::default()
+        };
+        let src = EnhanceSource {
+            fps: 24.0,
+            width: 1280,
+            height: 720,
+            has_audio: true,
+        };
+        let text = enhance_pipeline(&spec, &src, T, "C:\\TEMP").join("\n");
+
+        // 60/24 约分为 5/2，向上取整 → (LC*5+1)/2
+        assert!(text.contains("set /a LT=(LC*5+1)/2"), "{}", text);
+        assert!(text.contains(" -n %LT%"), "{}", text);
+        assert!(text.contains("-framerate 60"), "{}", text);
+        // 容器里明明有音轨，但用户选了「丢弃音频」
+        assert!(text.contains(" -an "), "{}", text);
+        assert!(!text.contains("-c:a copy"), "{}", text);
+    }
+
+    /// 倍数 3 倍也要走 `-n`（因为默认只有 2 倍）。
+    #[test]
+    fn enhance_rife_3x_uses_numframe_too() {
+        let spec = EnhanceSpec {
+            input: "in.mp4".into(),
+            output: "out.mp4".into(),
+            interp: true,
+            interp_engine: "rife".into(),
+            interp_fps: 0.0,
+            interp_mult: 3.0,
+            ..Default::default()
+        };
+        let src = EnhanceSource {
+            fps: 23.976,
+            width: 1920,
+            height: 1080,
+            has_audio: false,
+        };
+        let text = enhance_pipeline(&spec, &src, T, "C:\\TEMP").join("\n");
+        // 23.976 × 3 = 71.928，71.928/23.976 过约分后是 3/1，向上取整 = (LC*3+0)/1
+        assert!(text.contains("set /a LT=(LC*3+0)/1"), "{}", text);
+        assert!(text.contains("-framerate 71.928"), "{}", text);
+    }
+
+    /// 权重目录必须跟**可执行文件同级**。
+    /// 之前写成 `tools/models` —— 那是从压缩包解出来时的真实形状，
+    /// 但 tools 根下根本没有 models，命令会直接失败。
+    #[test]
+    fn enhance_model_dir_follows_the_exe() {
+        let dir = std::env::temp_dir().join("lanzhutool_enh_model_test");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(dir.join("rife-v4.6")).unwrap();
+        std::fs::write(dir.join("rife-ncnn-vulkan.exe"), b"x").unwrap();
+        let tools = dir.to_string_lossy().to_string();
+
+        let spec = EnhanceSpec {
+            input: "in.mp4".into(),
+            output: "out.mp4".into(),
+            interp: true,
+            interp_engine: "rife".into(),
+            interp_fps: 60.0,
+            ..Default::default()
+        };
+        let text = enhance_pipeline(&spec, &src_1080(), &tools, "C:\\TEMP").join("\n");
+
+        let want = format!("-m \"{}\"", dir.join("rife-v4.6").to_string_lossy());
+        assert!(text.contains(&want), "期望 {}：\n{}", want, text);
+
+        crate::tools::reset_cache();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 后缀把「用了什么引擎 + 多大倍数」写进文件名，一眼看得懂。
+    #[test]
+    fn enhance_suffix_names_engines_and_multipliers() {
+        let mut s = EnhanceSpec {
+            interp: true,
+            interp_engine: "rife".into(),
+            interp_fps: 0.0,
+            interp_mult: 2.0,
+            upscale: true,
+            upscale_engine: "realcugan".into(),
+            upscale_mult: 2.0,
+            ..Default::default()
+        };
+        assert_eq!(enhance_suffix(&s), "_rife2x_cugan2x");
+
+        s.interp_engine = "minterpolate".into();
+        s.interp_fps = 60.0;
+        assert_eq!(enhance_suffix(&s), "_fi60fps_cugan2x");
+
+        s.upscale = false;
+        s.interp_fps = 0.0;
+        s.interp_mult = 3.0;
+        assert_eq!(enhance_suffix(&s), "_fi3x");
+
+        s.upscale = true;
+        s.upscale_engine = "realesrgan".into();
+        assert_eq!(enhance_suffix(&s), "_fi3x_esr2x");
+    }
+
+    /// 默认输出：前缀在源文件旁边，重名要退避 —— 绝不能覆盖源文件。
+    #[test]
+    fn default_enhance_output_avoids_overwrite() {
+        let dir = std::env::temp_dir().join("lanzhutool_enh_naming_test");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("v.mp4");
+        std::fs::write(&input, b"x").unwrap();
+
+        let spec = EnhanceSpec {
+            input: input.to_string_lossy().to_string(),
+            interp: true,
+            interp_engine: "rife".into(),
+            interp_fps: 0.0,
+            interp_mult: 2.0,
+            ..Default::default()
+        };
+        let out = default_enhance_output(&spec);
+        assert_eq!(
+            std::path::Path::new(&out).file_name().unwrap().to_string_lossy(),
+            "v_rife2x.mp4"
+        );
+
+        std::fs::write(dir.join("v_rife2x.mp4"), b"x").unwrap();
+        let out = default_enhance_output(&spec);
+        assert_eq!(
+            std::path::Path::new(&out).file_name().unwrap().to_string_lossy(),
+            "v_new_file(1)_rife2x.mp4"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 容器决定默认编码器；`-j` 只接受 `a:b:c` 这种形状，别把界面的手滑送进命令行。
+    #[test]
+    fn enhance_encoder_and_jobs_defaults() {
+        let mut spec = EnhanceSpec {
+            upscale: true,
+            upscale_engine: "lanczos".into(),
+            container: "mkv".into(),
+            ..Default::default()
+        };
+        let lines = enhance_pipeline(&spec, &src_1080(), T, "C:\\TEMP");
+        assert!(lines[1].contains("-c:v libx265 -crf 20"), "{}", lines[1]);
+
+        spec.container = "mp4".into();
+        let lines = enhance_pipeline(&spec, &src_1080(), T, "C:\\TEMP");
+        assert!(lines[1].contains("-c:v libx264 -crf 18"), "{}", lines[1]);
+
+        // 手写编码器/参数时原样采用
+        spec.encoder = "h264_nvenc".into();
+        spec.encode_params = "-cq 23 -preset p5".into();
+        let lines = enhance_pipeline(&spec, &src_1080(), T, "C:\\TEMP");
+        assert!(
+            lines[1].contains("-c:v h264_nvenc -cq 23 -preset p5"),
+            "{}",
+            lines[1]
+        );
+
+        assert_eq!(jobs_flag("2:2:2"), " -j 2:2:2");
+        assert_eq!(jobs_flag(""), "");
+        assert_eq!(jobs_flag("2:2"), "", "位数不对就不传");
+        assert_eq!(jobs_flag("a:b:c"), "", "非数字就不传");
     }
 }

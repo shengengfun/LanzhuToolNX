@@ -220,6 +220,176 @@ impl Default for AvsSpec {
     }
 }
 
+/// 插帧 / 超分。
+///
+/// 这里有两条**本质不同**的路子，界面上要让用户看得见这个区别：
+///
+/// - **内置**（`minterpolate` / `scale` / `xbr`）：纯 ffmpeg 滤镜，
+///   不需要任何额外文件，装完就能用；代价是画质与速度都一般，
+///   而且 `minterpolate` 是纯 CPU 的（很慢）。
+/// - **本地模型**（`rife` / `realesrgan` / `realcugan`）：tools/ 下的
+///   ncnn-vulkan 可执行文件 + 权重文件，跑在 Vulkan 上，
+///   **不需要 CUDA / Python / PyTorch**，核显也能跑。
+///   代价是必须把视频拆成图片序列、处理完再重新编码（中间要过一遍 PNG）。
+///
+/// 两种可以混搭（例如 RIFE 插帧 + 内置 lanczos 超分），
+/// 只要有一边用了模型就整条走"拆帧"流程。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EnhanceSpec {
+    pub input: String,
+    pub output: String,
+
+    // ---- 插帧 ----
+    #[serde(default)]
+    pub interp: bool,
+    /// 引擎 id：`minterpolate`（内置）/ `rife`（本地模型）
+    #[serde(default = "d_minterpolate")]
+    pub interp_engine: String,
+    /// 目标帧率；> 0 时优先，0 表示按 `interp_mult` 倍数推
+    #[serde(default)]
+    pub interp_fps: f64,
+    /// 帧率倍数
+    #[serde(default = "d_two")]
+    pub interp_mult: f64,
+    /// rife 的模型目录名（rife-v4.6 / rife-anime …）
+    #[serde(default = "d_rife_model")]
+    pub interp_model: String,
+    /// minterpolate 的 `mi_mode`：mci（运动补偿）/ blend / dup
+    #[serde(default = "d_mci")]
+    pub interp_mode: String,
+    /// rife 的 TTA 模式（更准、慢一倍）
+    #[serde(default)]
+    pub interp_tta: bool,
+
+    // ---- 超分 ----
+    #[serde(default)]
+    pub upscale: bool,
+    /// 引擎 id：`lanczos` / `xbr`（内置）/ `realesrgan` / `realcugan`（本地模型）
+    #[serde(default = "d_lanczos")]
+    pub upscale_engine: String,
+    /// 放大倍数
+    #[serde(default = "d_two")]
+    pub upscale_mult: f64,
+    /// 最终目标分辨率；0 = 保持放大后的原始尺寸
+    #[serde(default)]
+    pub width: i64,
+    #[serde(default)]
+    pub height: i64,
+    /// realesrgan 的模型名（realesr-animevideov3 / realesrgan-x4plus / …）
+    #[serde(default = "d_esr_model")]
+    pub upscale_model: String,
+    /// realcugan 的模型目录名（models-se / models-pro / models-nose）
+    #[serde(default = "d_cugan_model")]
+    pub cugan_model: String,
+    /// realcugan 的降噪等级：-1 关闭 / 0..3 越大越强
+    #[serde(default = "d_neg_one")]
+    pub cugan_denoise: i32,
+
+    // ---- 模型推理 ----
+    /// Vulkan 设备序号；-1 = 强制走 CPU（慢，但没有可用显卡时的兜底）
+    #[serde(default)]
+    pub gpu_index: i32,
+    /// `-j load:proc:save`；大分辨率要调小，小图多线程反而更快
+    #[serde(default = "d_jobs")]
+    pub jobs: String,
+
+    // ---- 音频 / 编码 ----
+    /// 音轨处理：`copy` 复制 / `aac` 转 AAC / `none` 丢弃
+    #[serde(default = "d_copy")]
+    pub audio: String,
+    /// 编码器，留空按 `container` 推（mp4 → libx264，mkv → libx265? 不，仍 libx264）
+    #[serde(default)]
+    pub encoder: String,
+    /// 编码参数，原样拼在 `-c:v <encoder>` 后面
+    #[serde(default)]
+    pub encode_params: String,
+    /// 容器扩展名（不带点）
+    #[serde(default = "d_mp4_ext")]
+    pub container: String,
+}
+
+fn d_minterpolate() -> String {
+    "minterpolate".into()
+}
+fn d_mci() -> String {
+    "mci".into()
+}
+fn d_rife_model() -> String {
+    "rife-v4.6".into()
+}
+fn d_lanczos() -> String {
+    "lanczos".into()
+}
+fn d_esr_model() -> String {
+    "realesr-animevideov3".into()
+}
+fn d_cugan_model() -> String {
+    "models-se".into()
+}
+fn d_two() -> f64 {
+    2.0
+}
+fn d_neg_one() -> i32 {
+    -1
+}
+fn d_jobs() -> String {
+    "2:2:2".into()
+}
+fn d_copy() -> String {
+    "copy".into()
+}
+fn d_mp4_ext() -> String {
+    "mp4".into()
+}
+
+impl Default for EnhanceSpec {
+    fn default() -> Self {
+        Self {
+            input: String::new(),
+            output: String::new(),
+            interp: false,
+            interp_engine: d_minterpolate(),
+            interp_fps: 60.0,
+            interp_mult: d_two(),
+            interp_model: d_rife_model(),
+            interp_mode: d_mci(),
+            interp_tta: false,
+            upscale: false,
+            upscale_engine: d_lanczos(),
+            upscale_mult: d_two(),
+            width: 0,
+            height: 0,
+            upscale_model: d_esr_model(),
+            cugan_model: d_cugan_model(),
+            cugan_denoise: d_neg_one(),
+            gpu_index: 0,
+            jobs: d_jobs(),
+            audio: d_copy(),
+            encoder: String::new(),
+            encode_params: String::new(),
+            container: d_mp4_ext(),
+        }
+    }
+}
+
+/// 一个本地模型工具的就绪情况（给界面的「模型状态」卡片用）。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ModelTool {
+    /// `rife` | `realesrgan` | `realcugan`
+    pub id: String,
+    pub name: String,
+    /// 可执行文件绝对路径；空 = 没装
+    pub exe: String,
+    /// 能用的模型（rife 是模型目录名，realesrgan 是模型名）
+    pub models: Vec<String>,
+    /// 这些模型里哪些支持自定义帧数（只有 rife-v4 系支持 `-n`）
+    pub custom_frames: Vec<String>,
+    /// 说明（界面上灰字显示）
+    pub hint: String,
+}
+
 fn d_true() -> bool {
     true
 }

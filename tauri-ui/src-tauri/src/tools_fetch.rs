@@ -142,6 +142,48 @@ pub const PACKAGES: &[Pkg] = &[
         sources: &[],
         dest: "audio/encoders",
     },
+
+    /* ---------------- 插帧 / 超分的本地模型 ---------------- *
+     * 三个都是 ncnn + Vulkan 的独立 exe，**不需要 CUDA / Python / PyTorch**，
+     * Intel / AMD / NVIDIA 核显都能跑。权重就在 exe 旁边，
+     * `enhance_tools` 命令会把它们扫出来给界面选。
+     * -------------------------------------------------------- */
+    Pkg {
+        id: "rife",
+        name: "RIFE（插帧模型）",
+        desc: "实时中间流估计插帧。官方包囊括 11 个模型共 411MB，安装后会自动只留 rife-v4.6 与 rife-anime",
+        required: false,
+        approx_mb: 411,
+        provides: &["rife-ncnn-vulkan.exe"],
+        sources: &[s3(
+            "https://github.com/nihui/rife-ncnn-vulkan/releases/download/20221029/rife-ncnn-vulkan-20221029-windows.zip",
+        )],
+        dest: "video/enhance/rife",
+    },
+    Pkg {
+        id: "realesrgan",
+        name: "Real-ESRGAN（超分模型）",
+        desc: "通用超分网络，含实拍与动画两套权重",
+        required: false,
+        approx_mb: 43,
+        provides: &["realesrgan-ncnn-vulkan.exe"],
+        sources: &[s3(
+            "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip",
+        )],
+        dest: "video/enhance/realesrgan",
+    },
+    Pkg {
+        id: "realcugan",
+        name: "Real-CUGAN（超分模型・动画向）",
+        desc: "动画专用超分，自带三档降噪（models-se / pro / nose）",
+        required: false,
+        approx_mb: 44,
+        provides: &["realcugan-ncnn-vulkan.exe"],
+        sources: &[s3(
+            "https://github.com/nihui/realcugan-ncnn-vulkan/releases/download/20220728/realcugan-ncnn-vulkan-20220728-windows.zip",
+        )],
+        dest: "video/enhance/realcugan",
+    },
 ];
 
 /// 默认的国内加速前缀。留一个空串在最后，表示回落直连。
@@ -426,6 +468,85 @@ fn extract(archive: &Path, dest: &Path, seven_z: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// 解压后顺手裁剪用不到的模型。
+///
+/// RIFE 的官方压缩包把 11 个模型（1.2 到 4.6）全塞在一起，411MB；
+/// 实际只有 `rife-v4.6`（最新，而且**唯一**支持自定义帧数 `-n` 的）
+/// 和 `rife-anime`（动画向，2 倍时可用）用得上，剩下 340MB 纯属占地方。
+///
+/// 只删「里面有 .param 的模型目录」；任何一步不对就整段放弃，
+/// 绝不影响安装结果 —— 多占点磁盘总比装坏了强。
+fn prune_rife_models(dest: &Path) -> Option<u64> {
+    const KEEP: &[&str] = &["rife-v4.6", "rife-anime"];
+
+    // 压缩包会带一层 `rife-ncnn-vulkan-<日期>-windows/`，先找到 exe 那层
+    let tool_dir = walk_dirs(dest)
+        .into_iter()
+        .find(|d| d.join("rife-ncnn-vulkan.exe").is_file())?;
+
+    let mut freed = 0u64;
+    for e in std::fs::read_dir(&tool_dir).ok()?.flatten() {
+        let p = e.path();
+        if !p.is_dir() {
+            continue;
+        }
+        let name = e.file_name().to_string_lossy().to_string();
+        if KEEP.iter().any(|k| *k == name) {
+            continue;
+        }
+        // 只动「看起来就是模型目录」的那些
+        let is_model = std::fs::read_dir(&p)
+            .map(|rd| {
+                rd.flatten()
+                    .any(|f| f.file_name().to_string_lossy().ends_with(".param"))
+            })
+            .unwrap_or(false);
+        if !is_model {
+            continue;
+        }
+        freed += dir_size(&p);
+        let _ = std::fs::remove_dir_all(&p);
+    }
+    Some(freed)
+}
+
+/// 递归列出所有子目录（广度优先，深度封顶 4 层）。
+fn walk_dirs(root: &Path) -> Vec<PathBuf> {
+    let base = root.components().count();
+    let mut out = vec![root.to_path_buf()];
+    let mut i = 0;
+    while i < out.len() {
+        let cur = out[i].clone();
+        i += 1;
+        if cur.components().count() > base + 4 {
+            continue;
+        }
+        if let Ok(rd) = std::fs::read_dir(&cur) {
+            for e in rd.flatten() {
+                if e.path().is_dir() {
+                    out.push(e.path());
+                }
+            }
+        }
+    }
+    out
+}
+
+fn dir_size(dir: &Path) -> u64 {
+    let mut total = 0u64;
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                total += dir_size(&p);
+            } else if let Ok(md) = p.metadata() {
+                total += md.len();
+            }
+        }
+    }
+    total
+}
+
 /// 后台线程执行下载。进度通过 `tools://progress` 事件推给前端。
 pub fn download(app: AppHandle, ids: Vec<String>, tools_dir: String, mirrors: Vec<String>) -> Result<(), String> {
     {
@@ -491,6 +612,28 @@ pub fn download(app: AppHandle, ids: Vec<String>, tools_dir: String, mirrors: Ve
                     let dest = Path::new(&tools_dir).join(pkg.dest);
                     match extract(&file, &dest, is7z) {
                         Ok(()) => {
+                            // rife 包里 11 个模型全部自带，装完顺手裁掉用不到的
+                            if pkg.id == "rife" {
+                                if let Some(freed) = prune_rife_models(&dest) {
+                                    if freed > 0 {
+                                        let _ = app.emit(
+                                            "tools://progress",
+                                            Progress {
+                                                pkg: pkg.id.into(),
+                                                phase: "fetch".into(),
+                                                message: format!(
+                                                    "已清理用不到的模型，释放 {:.0} MB",
+                                                    freed as f64 / 1024.0 / 1024.0
+                                                ),
+                                                got: 0,
+                                                total: 0,
+                                                percent: 100.0,
+                                                speed_kbps: 0.0,
+                                            },
+                                        );
+                                    }
+                                }
+                            }
                             emit(
                                 &app,
                                 Progress {
@@ -738,6 +881,40 @@ mod tests {
         for id in ["ffmpeg", "mkvtoolnix", "qaac", "flac"] {
             assert!(get(id).downloadable, "{id} 应该可下载");
         }
+    }
+
+    /// RIFE 官方包自带 11 个模型（411MB），装完只该留下 v4.6 和 anime。
+    /// 注意别误删 exe、README 这类非模型文件。
+    #[test]
+    fn prune_rife_keeps_only_v46_and_anime() {
+        let dest = std::env::temp_dir().join("lanzhutool_rife_prune_test");
+        std::fs::remove_dir_all(&dest).ok();
+        let tool = dest.join("rife-ncnn-vulkan-20221029-windows");
+        std::fs::create_dir_all(&tool).unwrap();
+        std::fs::write(tool.join("rife-ncnn-vulkan.exe"), b"x").unwrap();
+        std::fs::write(tool.join("README.md"), b"x").unwrap();
+        for m in ["rife-v4.6", "rife-anime", "rife-v2.3", "rife", "rife-HD"] {
+            std::fs::create_dir_all(tool.join(m)).unwrap();
+            std::fs::write(tool.join(m).join("flownet.param"), b"x").unwrap();
+            std::fs::write(tool.join(m).join("flownet.bin"), vec![0u8; 1024]).unwrap();
+        }
+
+        let freed = prune_rife_models(&dest).expect("应该能找到工具目录");
+        assert!(freed > 0, "应该释放出空间");
+
+        let left: Vec<String> = std::fs::read_dir(&tool)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(left.iter().any(|n| n == "rife-v4.6"), "v4.6 必须保留：{left:?}");
+        assert!(left.iter().any(|n| n == "rife-anime"), "anime 必须保留：{left:?}");
+        assert!(!left.iter().any(|n| n == "rife-v2.3"), "旧模型该删：{left:?}");
+        assert!(!left.iter().any(|n| n == "rife-HD"), "旧模型该删：{left:?}");
+        assert!(left.iter().any(|n| n == "rife-ncnn-vulkan.exe"), "exe 不能被删：{left:?}");
+        assert!(left.iter().any(|n| n == "README.md"), "非模型文件不能被删：{left:?}");
+
+        std::fs::remove_dir_all(&dest).ok();
     }
 
     /// 所有下载地址都必须是 https，且没有明显的占位符

@@ -6,6 +6,7 @@ import {
   Music,
   Package,
   Settings,
+  Sparkles,
   Wand2,
   Wrench,
 } from 'lucide-react'
@@ -16,6 +17,7 @@ export type PageId =
   | 'audio'
   | 'mux'
   | 'avs'
+  | 'enhance'
   | 'misc'
   | 'mediainfo'
   | 'settings'
@@ -26,6 +28,12 @@ export const NAV_MAIN: { id: PageId; label: string; icon: LucideIcon; hint: stri
   { id: 'audio', label: '音频', icon: Music, hint: '音频转码 / 抽取 / 波形粗剪' },
   { id: 'mux', label: '封装抽取', icon: Package, hint: '重新封装，或抽出视频 / 音频 / 轨道' },
   { id: 'avs', label: 'AVS', icon: Wand2, hint: 'AviSynth 脚本压制' },
+  {
+    id: 'enhance',
+    label: '插帧超分',
+    icon: Sparkles,
+    hint: '本地模型插帧 / 超分（也可只用内置滤镜）',
+  },
   { id: 'misc', label: '常用', icon: Wrench, hint: '粗剪 / 单图视频 / 黑帧 等小工具' },
 ]
 
