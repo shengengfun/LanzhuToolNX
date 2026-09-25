@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Copy, ListChecks, Save, ScrollText, Trash2 } from 'lucide-react'
-import { Button, EmptyState, Row, Select } from './ui'
+import { Button, EmptyState, Progress, Row, Select } from './ui'
 import { cn } from '~/lib/utils'
 import { useApp, pickSave } from '~/state'
 import * as api from '~/lib/api'
@@ -186,16 +186,44 @@ export function OutputPanel() {
           {tab === 'task' && (
             <div className="min-h-0 flex-1 overflow-auto p-3">
               {running || progress ? (
-                <div className="space-y-2">
-                  <div className="rounded-xl bg-muted/35 p-2.5 font-mono text-[11.5px] break-all">
-                    {runningCmd}
+                <div className="space-y-2.5">
+                  <div className="space-y-1">
+                    <div className="flex items-baseline justify-between text-[13px]">
+                      <span className="font-semibold tabular-nums text-foreground">
+                        {(progress?.percent != null ? progress.percent * 100 : 0).toFixed(1)}%
+                      </span>
+                      <span className="tabular-nums text-[11.5px] text-muted-foreground">
+                        {progress ? `${progress.done}/${progress.total}` : '0/0'}
+                        {running ? ' · 运行中' : ' · 已结束'}
+                      </span>
+                    </div>
+                    <Progress value={progress?.percent != null ? progress.percent * 100 : 0} />
                   </div>
-                  <Row className="gap-3 text-[12px] text-muted-foreground">
-                    <span>
-                      进度 {progress ? `${progress.done}/${progress.total}` : '0/0'}
-                    </span>
-                    <span>{running ? '运行中' : '已结束'}</span>
+
+                  {progress?.file && (
+                    <div className="space-y-0.5">
+                      <div className="text-[11px] text-muted-foreground">当前文件</div>
+                      <div className="rounded-lg bg-muted/35 px-2 py-1 font-mono text-[11.5px] break-all">
+                        {progress.file}
+                      </div>
+                    </div>
+                  )}
+
+                  <Row className="flex-wrap gap-x-3 gap-y-1 text-[11.5px] text-muted-foreground">
+                    {!!progress?.frame && (
+                      <span className="tabular-nums">已编码 {progress.frame} 帧</span>
+                    )}
+                    {!!progress?.speed && (
+                      <span className="tabular-nums">{progress.speed.toFixed(2)}x 速度</span>
+                    )}
                   </Row>
+
+                  <div className="space-y-0.5">
+                    <div className="text-[11px] text-muted-foreground">本批命令</div>
+                    <div className="rounded-xl bg-muted/35 p-2.5 font-mono text-[11px] break-all">
+                      {runningCmd}
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <EmptyState title="暂无任务" />

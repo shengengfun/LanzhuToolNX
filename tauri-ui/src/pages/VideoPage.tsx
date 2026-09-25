@@ -32,6 +32,7 @@ import { PresetManager } from '~/components/PresetManager'
 import {
   useApp,
   useDropZone,
+  useWorkspaceValue,
   pickFile,
   pickFiles,
   pickFolder,
@@ -54,6 +55,7 @@ export function VideoPage() {
     notify,
     settings,
     patchSettings,
+    workspaceReady,
     running,
     paused,
     run,
@@ -61,8 +63,8 @@ export function VideoPage() {
     togglePause,
   } = useApp()
   const [batch, setBatch] = React.useState<string[]>([])
-  const [outputDir, setOutputDir] = React.useState(settings.outputDir)
-  const [embedSub, setEmbedSub] = React.useState(false)
+  const [outputDir, setOutputDir] = useWorkspaceValue('batchOutputDir', settings.outputDir)
+  const [embedSub, setEmbedSub] = useWorkspaceValue('embedSubtitle', false)
   const [gpus, setGpus] = React.useState<{ index: number; label: string; kind: string }[]>([])
 
   /** 源文件量测（时长/分辨率/码率），只探测一次，预计大小靠它算 */
@@ -70,7 +72,6 @@ export function VideoPage() {
   /** 用户是否手动改过输出名。改过就尊重用户，不再自动跟随输入文件 */
   const [outputTouched, setOutputTouched] = React.useState(false)
   const [presetOpen, setPresetOpen] = React.useState(false)
-  const autoSubRef = React.useRef('')
 
   /** 当前生效的预设（未用预设时为 null） */
   const activePreset = React.useMemo(() => {
@@ -117,8 +118,14 @@ export function VideoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  React.useEffect(() => setOutputDir(settings.outputDir), [settings.outputDir])
-
+  // 没在设置里指定过批量输出目录时，跟随「输出目录」这个全局默认值
+  // （用户指定过一次之后就以工作区里记的为准，不再被设置覆盖）
+  React.useEffect(() => {
+    if (!workspaceReady) return
+    if (settings.workspace?.batchOutputDir) return
+    if (!outputDir && settings.outputDir) setOutputDir(settings.outputDir)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceReady, outputDir, settings.outputDir])
   // 首次进入时把设置里的「压制默认值」套用上；用户已经改过就不再覆盖
   React.useEffect(() => {
     const d = defaultVideo()
@@ -158,28 +165,20 @@ export function VideoPage() {
    *  2. 探测媒体信息（预计大小要用）
    *  3. 自动匹配同名字幕（.ass/.srt/.ssa/.sub）
    *
-   * 以前这三件事都不做：拖进视频后输出名不动、字幕要手动选、预计大小是个死数。
+   * 字幕这一步原版是**无条件重算**的：换了片子就按新片子重找，找不到就清空。
+   * 之前加了一道"用户手选过的字幕不碰"的保护，结果换视频时旧字幕赖着不走，
+   * 用户报的"替换视频后不会主动寻找新视频的字幕"就是这个。
    */
   React.useEffect(() => {
     const p = video.input
     if (!p) return
-    const curSub = video.subtitle
     let alive = true
     const t = window.setTimeout(async () => {
       if (!alive) return
       void refreshEstimate(p)
       const sub = await api.detectSubtitle(p, 'none').catch(() => null)
       if (!alive) return
-      // 用户手选过的字幕一律不碰
-      if (curSub && curSub !== autoSubRef.current) return
-      if (sub) {
-        if (sub !== curSub) patchVideo({ subtitle: sub })
-        autoSubRef.current = sub
-      } else if (curSub && curSub === autoSubRef.current) {
-        // 上一个文件自动配到的字幕，对这个文件不适用了 —— 清掉，别留个错字幕
-        patchVideo({ subtitle: '' })
-        autoSubRef.current = ''
-      }
+      patchVideo({ subtitle: sub ?? '' })
     }, 250)
     return () => {
       alive = false
@@ -296,6 +295,8 @@ export function VideoPage() {
             onChange={(v) => patchVideo({ input: v })}
             onBrowse={() => void chooseInput()}
             onDropFile={(paths) => takeInput(paths[0])}
+            onDoubleClick={() => void api.openLocal(video.input).catch(() => void 0)}
+            hint="双击用默认播放器打开"
             placeholder="拖进来，或点右边文件夹选择"
           />
           <PathRow
@@ -318,6 +319,8 @@ export function VideoPage() {
               setOutputTouched(true)
               patchVideo({ output: paths[0] })
             }}
+            onDoubleClick={() => void api.openLocal(video.output).catch(() => void 0)}
+            hint="双击播放/打开输出文件（需已存在）"
           />
           <PathRow
             label="字幕"
@@ -326,11 +329,16 @@ export function VideoPage() {
             onBrowse={() =>
               void pickFile('选择字幕文件', SUB_FILTERS).then((p) => {
                 if (!p) return
-                autoSubRef.current = ''
                 patchVideo({ subtitle: p })
               })
             }
             onDropFile={(paths) => patchVideo({ subtitle: paths[0] })}
+            onDoubleClick={() => {
+              if (!video.subtitle) return
+              patchVideo({ subtitle: '' })
+              notify('已清空字幕')
+            }}
+            hint="双击清空字幕文件文本框；留空则不内嵌字幕"
             placeholder="留空则不内嵌字幕；导入视频时会自动匹配同名字幕"
           />
           {src && src.durationSec > 0 && (

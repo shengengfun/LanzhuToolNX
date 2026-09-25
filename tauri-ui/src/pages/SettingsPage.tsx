@@ -309,6 +309,9 @@ export function SettingsPage() {
                 outputDir: settings.outputDir,
                 language: settings.language,
                 mirrors: settings.mirrors,
+                // 「上次用的参数」是工作区不是偏好 —— 重置设置不该把用户
+                // 正在压的东西一起清空（`DEFAULT_SETTINGS` 里它是空值）。
+                workspace: settings.workspace,
               })
               notify('设置已恢复到初始状态')
             }}

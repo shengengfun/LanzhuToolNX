@@ -355,6 +355,9 @@ export interface AppSettings {
   /** 下载工具时依次尝试的镜像前缀；末尾留空串表示回落直连 */
   mirrors: string[]
 
+  /** 上次用的压制/封装参数（见 WorkspaceState） */
+  workspace: WorkspaceState
+
   // ---- 编码默认值 ----
   threadsDefault: string
   defaultFormat: string
@@ -395,6 +398,45 @@ export interface AppSettings {
 
   // ---- 压制预设（用户自建） ----
   presets: EncodePreset[]
+}
+
+/**
+ * 上次用的压制 / 封装参数（原版存在 `lanzhutool.exe.Config` 的 appSettings 里）。
+ *
+ * 跟「偏好设置」分开放：改偏好不该把正在用的参数清掉，重置设置也不该动它。
+ * 后端 `spec.rs::WorkspaceState` 一一对应 —— 结构体里没声明的字段保存时会被
+ * serde 丢掉，新增字段两边都要改。
+ */
+export interface WorkspaceState {
+  /** 上次停留的页面 id */
+  page: string
+  video: VideoSpec | null
+  audio: AudioSpec | null
+  mux: MuxSpec | null
+  extract: ExtractSpec | null
+  enhance: EnhanceSpec | null
+  /** AVS：脚本正文与脚本路径 */
+  avsScript: string
+  avsScriptPath: string
+  /** 批量压制的输出目录与「内嵌字幕」开关 */
+  batchOutputDir: string
+  embedSubtitle: boolean
+  /** 批量封装的目标容器 */
+  batchMuxFormat: string
+}
+
+export const EMPTY_WORKSPACE: WorkspaceState = {
+  page: 'video',
+  video: null,
+  audio: null,
+  mux: null,
+  extract: null,
+  enhance: null,
+  avsScript: '',
+  avsScriptPath: '',
+  batchOutputDir: '',
+  embedSubtitle: false,
+  batchMuxFormat: 'mp4',
 }
 
 /**

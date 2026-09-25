@@ -50,10 +50,15 @@ Button.displayName = 'Button'
 
 /* ================================================================== *
  * 输入类 —— 统一「浅灰填充 + 圆角 + 淡边框 + 聚焦强调环」
+ *
+ * 字号固定 12.5px（不再用 `text-sm` 的 14px）：下拉框里的
+ * 「H.264 8bit」「压制音频」这类值本来就不长，但控件往往只有 80~120px 宽，
+ * 14px 下会被截成「H....」—— 用户报的「字体显示不全」就是它。
+ * 12.5px 也和路径框、状态栏一致，不会显得比周围文字大一圈。
  * ================================================================== */
 
 const fieldBase =
-  'w-full rounded-xl border border-input/60 bg-muted/40 px-3 text-sm text-foreground ' +
+  'w-full rounded-xl border border-input/60 bg-muted/40 px-3 text-[12.5px] text-foreground ' +
   'shadow-2xs transition-colors placeholder:text-muted-foreground ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:bg-card ' +
   'disabled:cursor-not-allowed disabled:opacity-55'

@@ -13,7 +13,7 @@ import {
   Separator,
 } from '~/components/ui'
 import { PathRow } from '~/components/common'
-import { useApp, pickFile, pickSave } from '~/state'
+import { useApp, useWorkspaceSpec, pickFile, pickSave } from '~/state'
 import * as api from '~/lib/api'
 import {
   CUGAN_DENOISE,
@@ -69,11 +69,12 @@ const DEFAULT_SPEC: EnhanceSpec = {
  */
 export function EnhancePage() {
   const { notify, appendLog, running, paused, run, cancel, togglePause, settings } = useApp()
-  const [spec, setSpec] = React.useState<EnhanceSpec>(DEFAULT_SPEC)
+  const [spec, patchSpec] = useWorkspaceSpec('enhance', DEFAULT_SPEC)
   const [tools, setTools] = React.useState<ModelTool[]>([])
   const [info, setInfo] = React.useState<MediaInfo | null>(null)
 
-  const patch = (p: Partial<EnhanceSpec>) => setSpec((s) => ({ ...s, ...p }))
+  /** 改一个字段就顺手记进设置（防抖落盘在 state 层做） */
+  const patch = (p: Partial<EnhanceSpec>) => patchSpec(p)
 
   // 模型工具的安装情况：进页面查一次，装完工具回来（toolsDir 变了）再查一次
   React.useEffect(() => {
@@ -85,8 +86,8 @@ export function EnhancePage() {
         setTools(t)
         // 默认选一个真的装了的 rife 模型，省得用户第一次就点错
         const rife = t.find((x) => x.id === 'rife')
-        if (rife?.models.length) {
-          setSpec((s) => (rife.models.includes(s.interpModel) ? s : { ...s, interpModel: rife.models[0] }))
+        if (rife?.models.length && !rife.models.includes(spec.interpModel)) {
+          patchSpec({ interpModel: rife.models[0] })
         }
       })
       .catch(() => void 0)

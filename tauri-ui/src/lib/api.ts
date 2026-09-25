@@ -17,6 +17,7 @@ import type {
   TrimSpec,
   VideoSpec,
 } from './types'
+import { EMPTY_WORKSPACE } from './types'
 
 /* ------------------------------------------------------------------ *
  * 环境守卫
@@ -191,6 +192,7 @@ export const loadSettings = () =>
     outputDir: '',
     language: 'zh-CN',
     mirrors: [],
+    workspace: EMPTY_WORKSPACE,
     threadsDefault: 'auto',
     defaultFormat: 'H.264 8bit',
     autoScrollLog: true,
@@ -224,6 +226,9 @@ export const readTextFile = (path: string) => call<string>('read_text_file', { p
 export const writeTextFile = (path: string, content: string) =>
   call<void>('write_text_file', { path, content }, undefined)
 
+/** 用系统默认程序打开本地文件（原版双击路径框的行为）。 */
+export const openLocal = (path: string) => call<void>('open_local', { path }, undefined)
+
 export const listBundledTools = () => call<string[]>('list_bundled_tools', {}, [])
 
 /** 默认工具目录：包内 tools/ 或用户配置的目录。 */
@@ -252,6 +257,12 @@ export interface ProgressEvent {
   id: number
   done: number
   total: number
+  /** 整体进度 0.0-1.0（含当前文件的内部进度） */
+  percent: number
+  /** 当前正在处理的原文件 */
+  file: string
+  frame: number
+  speed: number
 }
 
 export const onOutput = (cb: (e: OutputEvent) => void) => on<OutputEvent>('run://output', cb)

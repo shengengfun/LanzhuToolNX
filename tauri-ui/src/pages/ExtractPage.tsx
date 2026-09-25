@@ -2,7 +2,7 @@ import * as React from 'react'
 import { Film, Music, Pause, Square, Scissors } from 'lucide-react'
 import { Button, Card, Field, GroupCard, Input, ListRow, ListShell, Row } from '~/components/ui'
 import { PathRow } from '~/components/common'
-import { useApp, pickFile, pickSave } from '~/state'
+import { useApp, useWorkspaceSpec, pickFile, pickSave } from '~/state'
 import * as api from '~/lib/api'
 import type { ExtractSpec, MediaInfo } from '~/lib/types'
 import { fileStem, splitPath } from '~/lib/utils'
@@ -19,9 +19,19 @@ const EXT: Record<Kind, string> = { video: '.mp4', audio: '.aac', track: '.mkv',
  */
 export function ExtractPanel() {
   const { running, paused, run, cancel, togglePause, notify } = useApp()
-  const [input, setInput] = React.useState('')
-  const [output, setOutput] = React.useState('')
-  const [streamIndex, setStreamIndex] = React.useState(0)
+  // 上次抽取用的来源/输出/流序号也记下来（一次性工具，拿来接着用很方便）
+  const [ws, patchWs] = useWorkspaceSpec('extract', {
+    input: '',
+    output: '',
+    kind: 'video' as Kind,
+    streamIndex: 0,
+  })
+  const input = ws.input
+  const output = ws.output
+  const streamIndex = ws.streamIndex
+  const setInput = (v: string) => patchWs({ input: v })
+  const setOutput = (v: string) => patchWs({ output: v })
+  const setStreamIndex = (v: number) => patchWs({ streamIndex: v })
   const [info, setInfo] = React.useState<MediaInfo | null>(null)
 
   const autoOutput = (src: string, kind: Kind, idx: number) => {

@@ -46,15 +46,18 @@ export function StatusBar() {
   }, [settings.showMonitor, running])
 
   const hasProgress = !!progress && progress.total > 0
-  const pct = hasProgress ? Math.round((progress!.done / progress!.total) * 100) : 0
+  // 以"当前文件内部进度"为准（后端按 ffmpeg 的 time= 算出来的），
+  // 不再用"已完成命令数 / 总命令数" —— 那种进度整段文件里都是 0%。
+  const pct = hasProgress ? Math.max(0, Math.min(100, progress!.percent * 100)) : 0
+  const file = progress?.file ? baseName(progress.file) : ''
 
   return (
     <footer className="relative flex h-8 shrink-0 items-center gap-3 border-t border-border/60 bg-card/70 px-3 text-[11.5px] text-muted-foreground backdrop-blur">
       {/* 总体进度：贴在底栏上沿的一条细线，任何页面都看得见 */}
       {running && (
-        <div className="absolute inset-x-0 top-0 h-0.5 bg-muted/60">
+        <div className="absolute inset-x-0 top-0 h-1 bg-muted/70">
           <div
-            className="h-full bg-primary transition-all duration-500"
+            className="h-full bg-primary shadow-[0_0_6px_var(--primary)] transition-[width] duration-300"
             style={{ width: `${pct}%` }}
           />
         </div>
@@ -69,15 +72,25 @@ export function StatusBar() {
 
       {running && (
         <>
-          <div className="flex w-44 items-center gap-2">
+          <div className="flex w-48 items-center gap-2">
             <Progress value={pct} />
-            <span className="shrink-0 tabular-nums">
-              {hasProgress ? `${pct}% · ${progress!.done}/${progress!.total}` : '…'}
+            <span className="shrink-0 font-semibold tabular-nums text-foreground">
+              {hasProgress ? `${pct.toFixed(1)}%` : '…'}
             </span>
           </div>
-          <span className="max-w-[320px] truncate font-mono text-[11px] opacity-80">
-            {runningCmd}
+          {hasProgress && progress!.total > 1 && (
+            <span className="shrink-0 tabular-nums">
+              {progress!.done + 1 > progress!.total ? progress!.total : progress!.done + 1}/
+              {progress!.total}
+            </span>
+          )}
+          {/* 当前文件比命令串有用得多：长任务里用户最想知道"现在压到哪个了" */}
+          <span className="max-w-[280px] truncate" title={progress?.file || runningCmd}>
+            {file || runningCmd}
           </span>
+          {!!progress?.speed && (
+            <span className="shrink-0 tabular-nums opacity-80">{progress.speed.toFixed(2)}x</span>
+          )}
         </>
       )}
 
@@ -91,6 +104,12 @@ export function StatusBar() {
       </span>
     </footer>
   )
+}
+
+/** 只取文件名 —— 底栏没有横着放整条路径的余地。 */
+function baseName(p: string) {
+  const i = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/'))
+  return i >= 0 ? p.slice(i + 1) : p
 }
 
 /** 性能监控区：CPU / GPU / 内存（取不到的项显示 --，绝不显示假数字）。 */

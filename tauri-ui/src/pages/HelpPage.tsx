@@ -60,6 +60,17 @@ export function HelpPage() {
       <GroupCard title="更新日志">
         <div className="space-y-3 text-[12px] leading-relaxed">
           <Changelog
+            version="v1.3.6"
+            items={[
+              '修：压制过程中的实时进度以前一个字都不刷新（ffmpeg 的进度行以 \\r 结尾，被当成“没换行”）。现在日志里能看到 frame= 一路刷过，底栏与「任务」页签同步显示百分比 / 当前文件 / 编码速度',
+              '新：Windows 任务栏图标上显示压制进度（暂停、失败也各有颜色），不用切回窗口就知道跑没跑完',
+              '新：记住上次用的参数 —— 视频 / 音频 / 封装 / 抽取 / AVS / 插帧超分的参数与路径、以及上次停留的页面，重开就恢复',
+              '修：部分下拉框文字被挤成“H....”（下拉框字号与其它控件对齐，同屏不再一大一小）',
+              '修：字幕框双击清空回来了；换视频时会重新找同名字幕，找不到就清空',
+              '修：启动画面不再谎称“正在准备工具链”，改成打开就用、读完设置就退场',
+            ]}
+          />
+          <Changelog
             version="v1.3.5"
             items={[
               '新：插帧超分页（在 AVS 之后）。两套引擎：ffmpeg 内置滤镜（minterpolate / lanczos / xBR / hqx，不装任何东西就能用）与本地模型（RIFE 插帧、Real-ESRGAN / Real-CUGAN 超分）',

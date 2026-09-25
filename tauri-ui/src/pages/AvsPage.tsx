@@ -1,4 +1,3 @@
-import * as React from 'react'
 import { FileCode2, Pause, Play, Save, Square } from 'lucide-react'
 import {
   Button,
@@ -13,7 +12,7 @@ import {
   Textarea,
 } from '~/components/ui'
 import { PathRow } from '~/components/common'
-import { useApp, pickFile, pickSave } from '~/state'
+import { useApp, useWorkspaceValue, pickFile, pickSave } from '~/state'
 import * as api from '~/lib/api'
 import { VIDEO_FORMATS } from '~/lib/types'
 import { changeExt } from '~/lib/utils'
@@ -28,8 +27,9 @@ AudioDub(src, aud)
 
 export function AvsPage() {
   const { video, patchVideo, audio, notify, appendLog, running, paused, run, cancel, togglePause } = useApp()
-  const [script, setScript] = React.useState(TEMPLATE)
-  const [scriptPath, setScriptPath] = React.useState('')
+  // 脚本正文与保存位置也记住（原版存的是 AVSScript）
+  const [script, setScript] = useWorkspaceValue('avsScript', TEMPLATE)
+  const [scriptPath, setScriptPath] = useWorkspaceValue('avsScriptPath', '')
 
   const saveScript = async () => {
     let p = scriptPath

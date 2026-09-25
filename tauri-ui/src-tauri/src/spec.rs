@@ -447,6 +447,31 @@ pub struct EncodePreset {
     pub builtin: bool,
 }
 
+/// 上次用的参数（原版存在 `lanzhutool.exe.Config` 的 appSettings 里）。
+///
+/// 单独收成一段而不是平铺进 `AppSettings`，是因为它跟"偏好设置"是两回事：
+/// 用户改偏好时不该顺手把正在用的参数清掉，重置设置也不该动它。
+/// 全部字段可选 —— 老版本的 settings.json 里没有这一段，读出来就是 None。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WorkspaceState {
+    /// 上次停留的页面 id
+    pub page: String,
+    pub video: Option<VideoSpec>,
+    pub audio: Option<AudioSpec>,
+    pub mux: Option<MuxSpec>,
+    pub extract: Option<ExtractSpec>,
+    pub enhance: Option<EnhanceSpec>,
+    /// AVS：脚本正文与脚本路径（原版也存了 AVSScript）
+    pub avs_script: String,
+    pub avs_script_path: String,
+    /// 批量压制的输出目录与「内嵌字幕」开关
+    pub batch_output_dir: String,
+    pub embed_subtitle: bool,
+    /// 批量封装的目标容器（inputs 列表是临时素材，不存）
+    pub batch_mux_format: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
@@ -455,6 +480,10 @@ pub struct AppSettings {
     pub language: String,
     /// 下载工具时依次尝试的镜像前缀；末尾留空串表示回落直连
     pub mirrors: Vec<String>,
+
+    /// 上次用的压制/封装参数（见 `WorkspaceState`）
+    #[serde(default)]
+    pub workspace: WorkspaceState,
 
     // ---- 编码默认值 ----
     #[serde(default = "d_threads")]
@@ -526,6 +555,7 @@ impl Default for AppSettings {
             output_dir: String::new(),
             language: "zh-CN".into(),
             mirrors: Vec::new(),
+            workspace: WorkspaceState::default(),
             threads_default: d_threads(),
             default_format: d_format(),
             auto_scroll_log: true,

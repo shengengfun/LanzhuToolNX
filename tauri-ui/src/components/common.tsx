@@ -16,7 +16,9 @@ export function PathRow({
   value,
   onChange,
   onBrowse,
+  onDoubleClick,
   placeholder,
+  hint,
   labelWidth = 52,
   onDropFile,
 }: {
@@ -24,7 +26,15 @@ export function PathRow({
   value: string
   onChange?: (v: string) => void
   onBrowse: () => void
+  /**
+   * 双击路径框。原版这几个框都有双击行为 ——
+   * 字幕框是「双击清空」，其余的「双击用默认程序打开」，
+   * 换壳时一起丢了，用户只能一个字符一个字符地删。
+   */
+  onDoubleClick?: () => void
   placeholder?: string
+  /** 悬停提示（把双击行为说清楚，不然没人猜得到） */
+  hint?: string
   labelWidth?: number
   onDropFile?: (paths: string[]) => void
 }) {
@@ -42,7 +52,9 @@ export function PathRow({
         <input
           value={value}
           onChange={(e) => onChange?.(e.target.value)}
+          onDoubleClick={onDoubleClick ? () => onDoubleClick() : undefined}
           placeholder={placeholder}
+          title={hint}
           spellCheck={false}
           className={cn(
             'h-8 min-w-0 flex-1 rounded-xl border border-input/60 bg-muted/40 px-3 text-[12.5px]',

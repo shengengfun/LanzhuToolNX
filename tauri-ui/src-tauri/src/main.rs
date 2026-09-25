@@ -9,6 +9,7 @@ mod run;
 mod settings;
 mod spec;
 mod sysmon;
+mod taskbar;
 mod tools;
 mod tools_fetch;
 mod tray;
@@ -623,16 +624,43 @@ fn list_bundled_tools() -> Vec<String> {
 fn read_text_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| format!("读取失败：{}", e))
 }
-
 #[tauri::command(rename_all = "camelCase")]
 fn write_text_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| format!("写入失败：{}", e))
 }
 
+/// 用系统默认程序打开一个本地文件。
+///
+/// 原版里双击路径框就能打开对应的文件（`txtvideo_MouseDoubleClick` 那批），
+/// 前端用的是「自绘标题栏 + 无边框窗口」，走系统 shell 最省事；
+/// 在这里调插件而不是从前端调，是为了不额外配一套路径作用域。
+#[tauri::command(rename_all = "camelCase")]
+fn open_local(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    if !std::path::Path::new(&path).exists() {
+        return Err("文件不存在".into());
+    }
+    app.opener()
+        .open_path(path, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
 /// 枚举 GPU：原版用 WMI 拿到显卡名，再按名字里的 (AMF)/(QSV) 判断厂商。
 /// 这里用 PowerShell CIM 取同样的信息，并直接给出后端类型。
+///
+/// 结果**缓存到进程退出**：这玩意要起一个 PowerShell（几百毫秒起），
+/// 而视频页在挂载时就会问一次 —— 不缓存的话每次冷启动都要白等一下。
 #[tauri::command(rename_all = "camelCase")]
 fn detect_gpus() -> Vec<GpuInfo> {
+    static CACHE: std::sync::OnceLock<Vec<GpuInfo>> = std::sync::OnceLock::new();
+    CACHE.get().cloned().unwrap_or_else(|| {
+        let list = detect_gpus_uncached();
+        let _ = CACHE.set(list.clone());
+        list
+    })
+}
+
+fn detect_gpus_uncached() -> Vec<GpuInfo> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -881,6 +909,10 @@ fn main() {
         .setup(|app| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_title("岚珠工具箱");
+                // 任务栏进度条画在窗口的任务栏按钮上，句柄给 taskbar 模块存一份
+                if let Ok(h) = w.hwnd() {
+                    taskbar::set_hwnd(h.0 as isize);
+                }
             }
             sysmon::start();
             if let Err(e) = tray::init(app.handle()) {
@@ -942,6 +974,7 @@ fn main() {
             list_bundled_tools,
             read_text_file,
             write_text_file,
+            open_local,
             detect_gpus,
             system_stats,
             hide_to_tray,

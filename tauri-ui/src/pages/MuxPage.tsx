@@ -28,7 +28,17 @@ import {
   Separator,
 } from '~/components/ui'
 import { PathRow, SegTab } from '~/components/common'
-import { useApp, useDropZone, pickFile, pickFiles, pickFolder, pickSave, AUDIO_FILTERS } from '~/state'
+import {
+  useApp,
+  useDropZone,
+  useWorkspaceSpec,
+  useWorkspaceValue,
+  pickFile,
+  pickFiles,
+  pickFolder,
+  pickSave,
+  AUDIO_FILTERS,
+} from '~/state'
 import * as api from '~/lib/api'
 import { AAC_ENCODERS, MUX_FORMATS, type BatchMuxSpec, type MediaInfo, type MuxSpec } from '~/lib/types'
 import { changeExt, splitPath } from '~/lib/utils'
@@ -85,7 +95,8 @@ export function MuxExtractPage() {
 
 function MuxPanel() {
   const { running, paused, run, cancel, togglePause, notify } = useApp()
-  const [spec, setSpec] = React.useState<MuxSpec>({
+  // 上次用的封装参数记在设置里（原版存 exe.Config，重启就回来）
+  const [spec, setSpec] = useWorkspaceSpec<MuxSpec>('mux', {
     video: '',
     audios: [],
     output: '',
@@ -97,7 +108,7 @@ function MuxPanel() {
   const [vinfo, setVinfo] = React.useState<MediaInfo | null>(null)
   /** 每条外部音轨探到的编码，用于提示「能不能直接复制」 */
   const [codecs, setCodecs] = React.useState<Record<string, string>>({})
-  const patch = (p: Partial<MuxSpec>) => setSpec((s) => ({ ...s, ...p }))
+  const patch = (p: Partial<MuxSpec>) => setSpec(p)
 
   /**
    * 选视频时顺手填默认输出名：`1.mp4` -> `1_Mux.mp4`（原版 `txtout.Text`）。
@@ -138,10 +149,10 @@ function MuxPanel() {
   }, [spec.video])
 
   /** 追加音轨（去重 + 保持顺序），顺便探一下编码 */
-  const addAudios = React.useCallback((paths: string[]) => {
-    setSpec((s) => {
-      const added = paths.filter((p) => p && !s.audios.includes(p))
-      if (!added.length) return s
+  const addAudios = React.useCallback(
+    (paths: string[]) => {
+      const added = paths.filter((p) => p && !spec.audios.includes(p))
+      if (!added.length) return
       for (const p of added) {
         api
           .probeMedia(p)
@@ -152,9 +163,11 @@ function MuxPanel() {
           })
           .catch(() => void 0)
       }
-      return { ...s, audios: [...s.audios, ...added] }
-    })
-  }, [])
+      patch({ audios: [...spec.audios, ...added] })
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [spec.audios],
+  )
 
   const removeAudio = (i: number) => patch({ audios: spec.audios.filter((_, k) => k !== i) })
   const dropAudios = useDropZone((paths) => addAudios(paths))
@@ -419,13 +432,21 @@ function MuxPanel() {
  */
 function ConvertPanel() {
   const { running, paused, run, cancel, togglePause, notify } = useApp()
+  // 目标容器记住（文件列表是临时素材，不用存）
+  const [savedFormat, setSavedFormat] = useWorkspaceValue('batchMuxFormat', 'mp4')
   const [spec, setSpec] = React.useState<BatchMuxSpec>({
     inputs: [],
-    format: 'mp4',
+    format: savedFormat || 'mp4',
     aacEncoder: 'aac',
     outputDir: '',
   })
   const patch = (p: Partial<BatchMuxSpec>) => setSpec((s) => ({ ...s, ...p }))
+
+  // 设置读完之后把上次选的容器补上
+  React.useEffect(() => {
+    if (savedFormat) patch({ format: savedFormat })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedFormat])
 
   const add = React.useCallback((paths: string[]) => {
     setSpec((s) => {
@@ -511,7 +532,14 @@ function ConvertPanel() {
       <GroupCard title="转换参数">
         <div className="grid grid-cols-2 gap-x-4 gap-y-2">
           <Field label="目标容器" labelWidth={64}>
-            <Select value={spec.format} onValueChange={(v) => patch({ format: v })} options={MUX_FORMATS} />
+            <Select
+              value={spec.format}
+              onValueChange={(v) => {
+                patch({ format: v })
+                setSavedFormat(v)
+              }}
+              options={MUX_FORMATS}
+            />
           </Field>
           <Field label="AAC 编码器" labelWidth={76}>
             <Select

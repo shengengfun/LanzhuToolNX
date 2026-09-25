@@ -2,7 +2,8 @@ import * as React from 'react'
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog'
 import * as api from './lib/api'
 import { applyAccent, applyBackground, applyTheme, applyUiScale } from './lib/appearance'
-import type { AppSettings, AudioSpec, VideoSpec } from './lib/types'
+import { EMPTY_WORKSPACE } from './lib/types'
+import type { AppSettings, AudioSpec, VideoSpec, WorkspaceState } from './lib/types'
 
 /* ================================================================== *
  * 文件对话框封装 —— 统一"过滤器"写法，页面里不用重复样板
@@ -163,6 +164,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   outputDir: '',
   language: 'zh-CN',
   mirrors: [],
+  workspace: EMPTY_WORKSPACE,
   threadsDefault: 'auto',
   defaultFormat: 'H.264 8bit',
   autoScrollLog: true,
@@ -186,7 +188,20 @@ export const DEFAULT_SETTINGS: AppSettings = {
 /** 最近文件列表上限。 */
 export const MAX_RECENT = 10
 
+/** 工作区（上次用的参数）落盘前的防抖时间：输入框一路敲下去不该每次都写文件。 */
+const WORKSPACE_SAVE_DELAY = 700
+
 let logSeq = 0
+
+/** 一条进度快照。`percent` 是含"当前文件内部进度"的整体进度。 */
+export interface RunProgress {
+  done: number
+  total: number
+  percent: number
+  file: string
+  frame: number
+  speed: number
+}
 
 interface AppCtx {
   settings: AppSettings
@@ -200,6 +215,16 @@ interface AppCtx {
   audio: AudioSpec
   patchAudio: (p: Partial<AudioSpec>) => void
 
+  /**
+   * 把「上次用的参数」写回设置文件（防抖）。
+   *
+   * 和 `patchSettings` 分开是有意的：这些字段是"工作区"，不是"偏好"，
+   * 走同一条通道的话，重置设置会把用户正在用的参数一起清掉。
+   */
+  patchWorkspace: (p: Partial<WorkspaceState>) => void
+  /** 工作区是否已经从设置文件里读出来了（页面靠它决定什么时候回填表单） */
+  workspaceReady: boolean
+
   log: LogLine[]
   appendLog: (text: string, stream?: LogLine['stream']) => void
   clearLog: () => void
@@ -209,7 +234,7 @@ interface AppCtx {
 
   running: boolean
   paused: boolean
-  progress: { done: number; total: number } | null
+  progress: RunProgress | null
   runningCmd: string
 
   run: (commands: string[], label?: string) => Promise<void>
@@ -234,7 +259,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [log, setLog] = React.useState<LogLine[]>([])
   const [runId, setRunId] = React.useState<number | null>(null)
   const [paused, setPaused] = React.useState(false)
-  const [progress, setProgress] = React.useState<{ done: number; total: number } | null>(null)
+  const [progress, setProgress] = React.useState<RunProgress | null>(null)
   const [runningCmd, setRunningCmd] = React.useState('')
   const [toast, setToast] = React.useState<ToastState | null>(null)
   const [scheme, setScheme] = React.useState<'light' | 'dark'>('light')
@@ -306,9 +331,62 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     api
       .loadSettings()
-      .then(setSettings)
+      .then((s) => {
+        setSettings(s)
+        // 把上次用的参数填回表单（原版 InitParameter() 干的就是这件事）。
+        // 逐字段合并而不是整体替换：老版本的 settings.json 里字段可能不全。
+        const w = s.workspace
+        if (w?.video) setVideo((v) => ({ ...v, ...w.video }))
+        if (w?.audio) setAudio((a) => ({ ...a, ...w.audio }))
+      })
       .catch(() => void 0)
       .finally(() => setReady(true))
+  }, [])
+
+  /* ---------------- 工作区：上次用的参数 ----------------
+   *
+   * 原版存进 `lanzhutool.exe.Config` 的 appSettings，重开就恢复；
+   * 换壳那会儿整条链路丢了，于是"关一下再打开，参数全变回默认"。
+   */
+  const wsPending = React.useRef<WorkspaceState | null>(null)
+  const wsTimer = React.useRef<number | null>(null)
+
+  const patchWorkspace = React.useCallback((p: Partial<WorkspaceState>) => {
+    const base = wsPending.current ?? settingsRef.current.workspace ?? EMPTY_WORKSPACE
+    const next = { ...base, ...p }
+    wsPending.current = next
+    if (wsTimer.current != null) window.clearTimeout(wsTimer.current)
+    wsTimer.current = window.setTimeout(() => {
+      wsPending.current = null
+      setSettings((s) => {
+        const merged = { ...s, workspace: next }
+        api.saveSettings(merged).catch(() => void 0)
+        return merged
+      })
+    }, WORKSPACE_SAVE_DELAY)
+  }, [])
+
+  // 视频 / 音频参数一变就记下来（同一路防抖，不会每次敲键都写盘）
+  React.useEffect(() => {
+    if (!ready) return
+    patchWorkspace({ video })
+  }, [video, ready, patchWorkspace])
+
+  React.useEffect(() => {
+    if (!ready) return
+    patchWorkspace({ audio })
+  }, [audio, ready, patchWorkspace])
+
+  // 关闭 / 刷新前把还压在防抖里的东西写掉
+  React.useEffect(() => {
+    const flush = () => {
+      const pending = wsPending.current
+      if (!pending) return
+      wsPending.current = null
+      api.saveSettings({ ...settingsRef.current, workspace: pending }).catch(() => void 0)
+    }
+    window.addEventListener('beforeunload', flush)
+    return () => window.removeEventListener('beforeunload', flush)
   }, [])
 
   // 订阅运行事件
@@ -368,7 +446,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
       .then((f) => (alive ? un.push(f) : f()))
     api
-      .onProgress((e) => setProgress({ done: e.done, total: e.total }))
+      .onProgress((e) =>
+        setProgress({
+          done: e.done,
+          total: e.total,
+          percent: e.percent ?? 0,
+          file: e.file ?? '',
+          frame: e.frame ?? 0,
+          speed: e.speed ?? 0,
+        }),
+      )
       .then((f) => (alive ? un.push(f) : f()))
 
     return () => {
@@ -385,7 +472,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return
       }
       setRunningCmd(label || clean[0])
-      setProgress({ done: 0, total: clean.length })
+      setProgress({ done: 0, total: 1, percent: 0, file: '', frame: 0, speed: 0 })
       setPaused(false)
       appendLog(`===== 开始执行 ${clean.length} 条命令 =====`, 'app')
       clean.forEach((c) => appendLog(`> ${c}`))
@@ -488,6 +575,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     patchVideo: (p) => setVideo((s) => ({ ...s, ...p })),
     audio,
     patchAudio: (p) => setAudio((s) => ({ ...s, ...p })),
+    patchWorkspace,
+    workspaceReady: ready,
     log,
     appendLog,
     clearLog,
@@ -574,4 +663,80 @@ function defaultAudio(): AudioSpec {
     bitrate: '128',
     customParams: '',
   }
+}
+
+/* ================================================================== *
+ * 工作区持久化
+ *
+ * 页面用这两个 hook 就能把自己的参数接进设置文件，不用各自写一遍
+ * 「等设置读完再回填 / 变化后防抖保存」。用法：
+ *
+ *   const [spec, patch] = useWorkspaceSpec('mux', DEFAULT_MUX)
+ *   const [dir, setDir] = useWorkspaceValue('batchOutputDir', '')
+ *
+ * 回填只做一次（`hydrated` 守卫）：等 `ready` 之后把存下来的值合并进初始值。
+ * 逐字段合并而不是整体替换 —— 老版本 settings.json 里字段可能不全。
+ * ================================================================== */
+
+/** 可以整对象存进工作区的几个页面（字段见 `WorkspaceState`）。 */
+export type WorkspaceSpecKey = 'mux' | 'extract' | 'enhance'
+
+export function useWorkspaceSpec<T extends object>(key: WorkspaceSpecKey, initial: T) {
+  const { settings, workspaceReady, patchWorkspace } = useApp()
+  const [spec, setSpec] = React.useState<T>(initial)
+  const hydrated = React.useRef(false)
+  // 连续两次 patch（比如"填来源 + 填输出"）必须能叠上，所以真值放 ref 里同步推进，
+  // 不放 setState 的 updater 里 —— updater 必须是纯函数，副作用会被 StrictMode 跑两遍。
+  const latest = React.useRef(spec)
+  latest.current = spec
+
+  React.useEffect(() => {
+    if (!workspaceReady || hydrated.current) return
+    hydrated.current = true
+    const stored = settings.workspace?.[key] as T | null | undefined
+    if (stored) {
+      const merged = { ...spec, ...stored }
+      latest.current = merged
+      setSpec(merged)
+    }
+    // 只在设置读完的那一刻回填一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceReady])
+
+  const patch = React.useCallback(
+    (p: Partial<T>) => {
+      const next = { ...latest.current, ...p }
+      latest.current = next
+      setSpec(next)
+      patchWorkspace({ [key]: next } as unknown as Partial<WorkspaceState>)
+    },
+    [key, patchWorkspace],
+  )
+
+  return [spec, patch] as const
+}
+
+/** 标量版（页面 id、脚本正文、开关…）。 */
+export function useWorkspaceValue<V>(key: keyof WorkspaceState, initial: V) {
+  const { settings, workspaceReady, patchWorkspace } = useApp()
+  const [value, setValue] = React.useState<V>(initial)
+  const hydrated = React.useRef(false)
+
+  React.useEffect(() => {
+    if (!workspaceReady || hydrated.current) return
+    hydrated.current = true
+    const stored = settings.workspace?.[key]
+    if (stored !== undefined && stored !== null && stored !== '') setValue(stored as V)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceReady])
+
+  const set = React.useCallback(
+    (v: V) => {
+      setValue(v)
+      patchWorkspace({ [key]: v } as unknown as Partial<WorkspaceState>)
+    },
+    [key, patchWorkspace],
+  )
+
+  return [value, set] as const
 }

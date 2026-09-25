@@ -5,7 +5,7 @@ import { Sidebar, type PageId } from './components/Sidebar'
 import { OutputPanel } from './components/OutputPanel'
 import { StatusBar } from './components/StatusBar'
 import { Button } from './components/ui'
-import { AppProvider, useApp } from './state'
+import { AppProvider, useApp, useWorkspaceValue } from './state'
 import * as api from './lib/api'
 import logo from './assets/logo.png'
 import { VideoPage } from './pages/VideoPage'
@@ -27,19 +27,33 @@ export default function App() {
 }
 
 function Shell() {
-  const [page, setPage] = React.useState<PageId>('video')
+  // 上次停留在哪一页也记下来（原版重启后回到同一个页签）
+  const [page, setPage] = useWorkspaceValue<PageId>('page', 'video')
   const [booted, setBooted] = React.useState(false)
+  const [splashArmed, setSplashArmed] = React.useState(false)
   const { running, ready, settings } = useApp()
 
-  // 启动画面：等设置加载完再展示（否则"跳过启动画面"的用户会看到它一闪而过），
-  // 展示约 1.3 秒后自己淡出。
-  const showSplash = ready && settings.showSplash && !booted
+  // 启动画面：**立刻**盖上，等设置读完就撤。
+  //
+  // 以前是反过来的 —— 先白屏等设置，读完再故意停 1.4 秒，于是用户看到的
+  // 就是"一个写着『正在准备工具链』的界面卡在那儿"，既不准也白等。
+  // 现在它只在真正需要遮的这段时间（WebView 起来 + 设置读出来）存在，
+  // 并且最少显示 550ms，免得一闪而过更显廉价。
+  //
+  // 延迟 120ms 才"上膛"是为了尊重关掉启动画面的用户：设置读得快时它根本不会出现。
+  React.useEffect(() => {
+    const t = window.setTimeout(() => setSplashArmed(true), 120)
+    return () => window.clearTimeout(t)
+  }, [])
+
+  const showSplash = splashArmed && settings.showSplash && !booted
+  const showToolsBanner = ready && !showSplash
 
   return (
     <div className="app-backdrop flex h-full flex-col">
       <TitleBar title="岚珠工具箱" version={__APP_VERSION__} />
 
-      <ToolsBanner onGoSettings={() => setPage('settings')} />
+      {showToolsBanner && <ToolsBanner onGoSettings={() => setPage('settings')} />}
 
       <div className="flex min-h-0 flex-1">
         <Sidebar page={page} onSelect={setPage} running={running} />
@@ -70,7 +84,7 @@ function Shell() {
 
       <StatusBar />
       <Toast />
-      {showSplash && <Splash onDone={() => setBooted(true)} />}
+      {showSplash && <Splash ready={ready} onDone={() => setBooted(true)} />}
     </div>
   )
 }
@@ -81,22 +95,29 @@ function Shell() {
  * 不做成独立小窗口，是因为真正耗时的只有"WebView 起来 + 设置读出来"，
  * 这段时间主窗口本来就是白的；在上面盖一层反而是最干净的做法
  * （也不会多出一个需要管生命周期的窗口）。
+ *
+ * 原版 SplashForm 就是一张 logo 图淡入，没有进度也没有文案 ——
+ * 这里保持同样的克制，只在底下留一条呼吸的进度线。
  */
-function Splash({ onDone }: { onDone: () => void }) {
+function Splash({ ready, onDone }: { ready: boolean; onDone: () => void }) {
   const [fading, setFading] = React.useState(false)
+  const shownAt = React.useRef(Date.now())
 
   React.useEffect(() => {
-    const t1 = window.setTimeout(() => setFading(true), 1000)
-    const t2 = window.setTimeout(onDone, 1400)
+    if (!ready) return
+    // 最少显示 550ms：一闪而过比多停一会儿更难受
+    const wait = Math.max(0, 550 - (Date.now() - shownAt.current))
+    const t1 = window.setTimeout(() => setFading(true), wait)
+    const t2 = window.setTimeout(onDone, wait + 320)
     return () => {
       window.clearTimeout(t1)
       window.clearTimeout(t2)
     }
-  }, [onDone])
+  }, [ready, onDone])
 
   return (
     <div
-      className={`app-backdrop fixed inset-0 z-[200] flex flex-col items-center justify-center gap-4 transition-opacity duration-500 ${
+      className={`app-backdrop fixed inset-0 z-[200] flex flex-col items-center justify-center gap-4 transition-opacity duration-300 ${
         fading ? 'opacity-0' : 'opacity-100'
       }`}
     >
@@ -111,10 +132,14 @@ function Splash({ onDone }: { onDone: () => void }) {
           <span className="font-bold text-primary">岚珠</span>
           <span className="font-semibold text-foreground">工具箱</span>
         </div>
-        <div className="mt-1 text-[12px] text-muted-foreground">v{__APP_VERSION__} · 正在准备工具链</div>
+        <div className="mt-1 text-[12px] text-muted-foreground">v{__APP_VERSION__}</div>
       </div>
       <div className="h-1 w-44 overflow-hidden rounded-full bg-muted">
-        <div className="size-full w-1/2 animate-pulse rounded-full bg-primary" />
+        <div
+          className={`h-full rounded-full bg-primary transition-all duration-500 ${
+            ready ? 'w-full' : 'w-1/3'
+          } ${ready ? '' : 'animate-pulse'}`}
+        />
       </div>
     </div>
   )
