@@ -60,6 +60,14 @@ export function HelpPage() {
       <GroupCard title="更新日志">
         <div className="space-y-3 text-[12px] leading-relaxed">
           <Changelog
+            version="v1.3.7.1"
+            items={[
+              '新：AVS 页的「已加载的外部滤镜 / 脚本」多了「导入滤镜」按钮 —— 选 .dll / .avsi / .avs（可多选）复制进 tools/avs/plugins，清单立刻刷新，dll 顺手把 LoadPlugin 插到脚本开头（以前只有「载入脚本」的选择框，只认 .avs，dll 根本选不进来）',
+              '新：滤镜清单加了「刷新」，手动往目录里丢完文件点一下就能重新扫描',
+              '修：启动后压制页不再挂着上次压制的视频 —— 读设置时没抹掉源文件 / 输出 / 字幕这些「这一趟」的字段，老设置文件里的陈旧路径会被填回表单',
+            ]}
+          />
+          <Changelog
             version="v1.3.7"
             items={[
               '新：进度改画在 Windows 任务栏图标上（绿色进度条，暂停变黄、失败变红）；底栏那条横贯整屏的长条撤掉了，只留一句当前文件与百分比',
