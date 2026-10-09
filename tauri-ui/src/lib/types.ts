@@ -65,6 +65,11 @@ export interface VideoSpec {
   audioParams: string
   container: string
   autoShutdown: boolean
+
+  /** AVS 脚本全文；只有勾了「应用到常规压制全局」才会用上 */
+  avsScript: string
+  /** true = 这一趟压制先过 AVS 脚本（画面来源换成脚本生成的 .avs，音轨仍来自源文件） */
+  avsApply: boolean
 }
 
 export interface AudioSpec {
@@ -132,6 +137,10 @@ export interface AvsSpec {
   script: string
   /** 脚本写到哪个文件；后端先落盘再把它当输入喂给 ffmpeg */
   scriptPath: string
+  /** 源视频文件；「压制音频」时音轨从这里抽（原版也是一样） */
+  source: string
+  /** 是否压制音频 */
+  withAudio: boolean
   /** 压制参数，和普通视频完全一致 */
   spec: VideoSpec
 }
@@ -418,6 +427,8 @@ export interface WorkspaceState {
   /** AVS：脚本正文与脚本路径 */
   avsScript: string
   avsScriptPath: string
+  /** 勾了就表示这份 AVS 脚本要套到常规压制的画面上 */
+  avsApplyGlobal: boolean
   /** 批量压制的输出目录与「内嵌字幕」开关 */
   batchOutputDir: string
   embedSubtitle: boolean
@@ -434,9 +445,25 @@ export const EMPTY_WORKSPACE: WorkspaceState = {
   enhance: null,
   avsScript: '',
   avsScriptPath: '',
+  avsApplyGlobal: false,
   batchOutputDir: '',
   embedSubtitle: false,
   batchMuxFormat: 'mp4',
+}
+
+/** AVS 外置滤镜 / 脚本目录里的一个条目。 */
+export interface AvsPlugin {
+  name: string
+  /** filter = .dll（脚本里要 LoadPlugin）/ script = .avs/.avsi（AviSynth 自动加载） */
+  kind: 'filter' | 'script'
+}
+
+/** `tools/avs/plugins` 的内容（AVS 页底下那个框）。 */
+export interface AvsPlugins {
+  dir: string
+  /** `avs/AviSynth.dll` 在不在 */
+  avisynth: boolean
+  plugins: AvsPlugin[]
 }
 
 /**

@@ -261,9 +261,19 @@ export function VideoPage() {
     audio.bitrate,
   ])
 
+  /**
+   * 「AVS 应用到常规压制全局」：AVS 页勾上那个开关后，这里的画面先过它的脚本。
+   * 脚本在 AVS 页手写/生成，源行由后端改指到当前文件，所以这边只负责把两样东西带上。
+   */
+  const withGlobalAvs = (s: typeof video) => {
+    const ws = settings.workspace
+    if (!ws?.avsApplyGlobal || !ws.avsScript?.trim()) return s
+    return { ...s, avsApply: true, avsScript: ws.avsScript }
+  }
+
   const startSingle = async () => {
     try {
-      await run(await api.planVideo(video, audio), video.input)
+      await run(await api.planVideo(withGlobalAvs(video), audio), video.input)
     } catch (e) {
       notify(String(e).replace(/^Error:\s*/, ''), 'error')
     }
@@ -272,7 +282,7 @@ export function VideoPage() {
   const startBatch = async () => {
     try {
       await run(
-        await api.planBatch(batch, video, audio, outputDir, embedSub),
+        await api.planBatch(batch, withGlobalAvs(video), audio, outputDir, embedSub),
         `批量 ${batch.length} 个文件`,
       )
     } catch (e) {

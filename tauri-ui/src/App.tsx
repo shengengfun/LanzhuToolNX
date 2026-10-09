@@ -97,22 +97,19 @@ function Shell() {
  * （也不会多出一个需要管生命周期的窗口）。
  *
  * 原版 SplashForm 就是一张 logo 图淡入，没有进度也没有文案 ——
- * 这里保持同样的克制，只在底下留一条呼吸的进度线。
+ * 这里保持同样的克制。延迟 120ms 才"上膛"，所以设置读得快时它根本不出现，
+ * 真正做到"即开即用"。
  */
 function Splash({ ready, onDone }: { ready: boolean; onDone: () => void }) {
   const [fading, setFading] = React.useState(false)
-  const shownAt = React.useRef(Date.now())
 
   React.useEffect(() => {
     if (!ready) return
-    // 最少显示 550ms：一闪而过比多停一会儿更难受
-    const wait = Math.max(0, 550 - (Date.now() - shownAt.current))
-    const t1 = window.setTimeout(() => setFading(true), wait)
-    const t2 = window.setTimeout(onDone, wait + 320)
-    return () => {
-      window.clearTimeout(t1)
-      window.clearTimeout(t2)
-    }
+    // 设置读出来就马上退场 —— 只有真正卡住的冷启动才会看到这一层；
+    // 不再为了"看起来像在加载"硬停 550ms（那是白等）。
+    setFading(true)
+    const t = window.setTimeout(onDone, 180)
+    return () => window.clearTimeout(t)
   }, [ready, onDone])
 
   return (
@@ -158,16 +155,21 @@ function ToolsBanner({ onGoSettings }: { onGoSettings: () => void }) {
 
   React.useEffect(() => {
     let alive = true
-    Promise.all([api.resolveToolsDir(), api.listBundledTools()])
-      .then(([d, tools]) => {
-        if (!alive) return
-        const lower = tools.map((t) => t.toLowerCase())
-        setDir(d)
-        setMissing(!lower.includes('ffmpeg.exe') || !lower.includes('ffprobe.exe'))
-      })
-      .catch(() => void 0)
+    // 启动时不查：`list_bundled_tools` 要递归扫一遍 800MB 的工具目录，
+    // 卡在首帧上太亏 —— 先让界面出来，空闲了再体检。
+    const t = window.setTimeout(() => {
+      Promise.all([api.resolveToolsDir(), api.listBundledTools()])
+        .then(([d, tools]) => {
+          if (!alive) return
+          const lower = tools.map((t) => t.toLowerCase())
+          setDir(d)
+          setMissing(!lower.includes('ffmpeg.exe') || !lower.includes('ffprobe.exe'))
+        })
+        .catch(() => void 0)
+    }, 1500)
     return () => {
       alive = false
+      window.clearTimeout(t)
     }
     // toolsDir 变了要重新判断（用户在设置页改完就立刻生效）
   }, [settings.toolsDir])

@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type {
   AppSettings,
   AudioSpec,
+  AvsPlugins,
   AvsSpec,
   BatchMuxSpec,
   EnhanceSpec,
@@ -230,6 +231,10 @@ export const writeTextFile = (path: string, content: string) =>
 export const openLocal = (path: string) => call<void>('open_local', { path }, undefined)
 
 export const listBundledTools = () => call<string[]>('list_bundled_tools', {}, [])
+
+/** AVS 外置滤镜 / 脚本清单（含滤镜目录与 AviSynth.dll 是否存在）。 */
+export const listAvsPlugins = () =>
+  call<AvsPlugins>('list_avs_plugins', {}, { dir: '', avisynth: false, plugins: [] })
 
 /** 默认工具目录：包内 tools/ 或用户配置的目录。 */
 export const resolveToolsDir = () => call<string>('resolve_tools_dir', {}, '（预览模式）')

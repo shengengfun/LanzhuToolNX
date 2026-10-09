@@ -31,6 +31,39 @@ fn tools_dir() -> String {
 }
 
 /* ================================================================== *
+ * 「AVS 应用到常规压制全局」
+ * ================================================================== */
+
+/// 把 AVS 脚本的源行改指到 `input` 后写到临时目录，返回这个 `.avs` 路径。
+///
+/// 只有开了开关、脚本非空才返回 `Some`；写盘失败也返回 `None`（宁可照常压，
+/// 也不能因为一个临时文件让整个任务起不来）。
+fn write_global_avs(script: &str, input: &str, stem: &str) -> Option<String> {
+    if script.trim().is_empty() || input.trim().is_empty() {
+        return None;
+    }
+    let path = std::path::Path::new(&temp_dir()).join(format!("{}_global.avs", stem));
+    let body = cmd::retarget_avs_source(script, input);
+    std::fs::write(&path, body).ok()?;
+    Some(path.to_string_lossy().to_string())
+}
+
+fn stem_of(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "input".into())
+}
+
+/// 这一趟该不该走 AVS：该走就返回生成的 `.avs` 路径（画面的新来源）。
+fn avs_override(spec: &VideoSpec) -> Option<String> {
+    if !spec.avs_apply {
+        return None;
+    }
+    write_global_avs(&spec.avs_script, &spec.input, &stem_of(&spec.input))
+}
+
+/* ================================================================== *
  * 命令预览：只拼命令行、不执行
  * ================================================================== */
 
@@ -54,14 +87,20 @@ fn plan_video(spec: VideoSpec, audio: AudioSpec) -> Result<Vec<String>, String> 
     let mut a = audio;
     a.input = spec.input.clone();
 
+    // 开了「应用到常规压制全局」：画面走脚本生成的 .avs，音频仍从源文件抽
+    let avs = avs_override(&spec);
+    let video_input = avs.clone().unwrap_or_else(|| spec.input.clone());
+    let sub = if avs.is_some() { "" } else { spec.subtitle.as_str() };
+
     let bat = cmd::video_pipeline(
         &spec,
         &a,
         &tools,
         &tp,
         &spec.input,
+        &video_input,
         &spec.output,
-        &spec.subtitle,
+        sub,
         has_audio,
         &audio_format,
     );
@@ -129,19 +168,39 @@ fn plan_avs(spec: AvsSpec, audio: AudioSpec) -> Result<Vec<String>, String> {
         return Err("请先选择输出文件".into());
     }
 
+    // 原版 `btnAVS9_Click`：「压制音频」时音轨是从**源视频**抽的，不是从 .avs。
+    let src = if spec.source.trim().is_empty() {
+        cmd::avs_source_path(&spec.script).unwrap_or_default()
+    } else {
+        spec.source.clone()
+    };
+    let (has_audio, audio_format) = if spec.with_audio && !src.trim().is_empty() {
+        let info = probe::probe(&tools, &src);
+        (
+            info.audio.is_some(),
+            info.audio.map(|a| a.codec).unwrap_or_default(),
+        )
+    } else {
+        (false, String::new())
+    };
+
     let mut a = audio;
-    a.input = spec.script_path.clone();
+    a.input = if has_audio { src.clone() } else { spec.script_path.clone() };
+
+    // 临时文件按源视频命名（原版用的就是 `namevideo9`）
+    let input = if src.trim().is_empty() { &spec.script_path } else { &src };
 
     let bat = cmd::video_pipeline(
         &spec.spec,
         &a,
         &tools,
         &tp,
+        input,
         &spec.script_path,
         &spec.spec.output,
         "",
-        false,
-        "",
+        has_audio,
+        &audio_format,
     );
     Ok(bat
         .lines()
@@ -190,10 +249,23 @@ fn plan_batch(
         let audio_format = info.audio.map(|a| a.codec).unwrap_or_default();
 
         // 内嵌字幕：优先找同名 .ass/.srt（原版 GetSubtitlePath 的行为）
-        let sub = if embed_subtitle {
+        let mut sub = if embed_subtitle {
             find_subtitle(input)
         } else {
             String::new()
+        };
+
+        // 开了「应用到常规压制全局」：这个文件的画面改走它自己的 .avs
+        let video_input = if spec.avs_apply {
+            match write_global_avs(&spec.avs_script, input, &stem) {
+                Some(p) => {
+                    sub = String::new(); // 字幕已写进脚本，别再叠一次
+                    p
+                }
+                None => input.clone(),
+            }
+        } else {
+            input.clone()
         };
 
         let mut a = audio.clone();
@@ -205,6 +277,7 @@ fn plan_batch(
             &tools,
             &tp,
             input,
+            &video_input,
             &output,
             &sub,
             has_audio,
@@ -620,6 +693,54 @@ fn list_bundled_tools() -> Vec<String> {
     tools::list_tools(&tools_dir())
 }
 
+/// `tools/avs/plugins` 里有哪些外置滤镜 / 脚本（AVS 页底下那个框）。
+///
+/// 只读一层目录：这个目录里是平铺的 dll/avsi，深挖没意义；
+/// AviSynth.dll 在上一层（`avs/`），单独探一下。
+#[tauri::command(rename_all = "camelCase")]
+fn list_avs_plugins() -> AvsPlugins {
+    let avs_dir = std::path::Path::new(&tools_dir()).join("avs");
+    let plugins_dir = avs_dir.join("plugins");
+    let mut plugins: Vec<AvsPlugin> = Vec::new();
+
+    if let Ok(rd) = std::fs::read_dir(&plugins_dir) {
+        for entry in rd.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let ext = path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            let kind = match ext.as_str() {
+                "dll" => "filter",
+                "avs" | "avsi" => "script",
+                _ => continue,
+            };
+            plugins.push(AvsPlugin {
+                name: name.to_string(),
+                kind: kind.to_string(),
+            });
+        }
+    }
+
+    plugins.sort_by(|a, b| {
+        // 滤镜在前、脚本在后，同类按名字排（和原版下拉框的观感一致）
+        a.kind.cmp(&b.kind).then_with(|| a.name.cmp(&b.name))
+    });
+
+    AvsPlugins {
+        dir: plugins_dir.to_string_lossy().to_string(),
+        avisynth: avs_dir.join("AviSynth.dll").is_file(),
+        plugins,
+    }
+}
+
 #[tauri::command(rename_all = "camelCase")]
 fn read_text_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| format!("读取失败：{}", e))
@@ -923,10 +1044,14 @@ fn main() {
         })
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
-                // 点 X 一律收回托盘（而不是退出）—— 长任务跑到一半手滑关掉是最伤的。
-                // 真退出走托盘菜单的「退出岚珠工具箱」。
-                api.prevent_close();
-                let _ = window.hide();
+                // 默认：点 ✕ 就是退出。只有开了「托盘模式」才收进托盘，
+                // 免得用户点了关闭却找不到窗口、进程还赖着不走。
+                if settings::load().minimize_to_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+                } else {
+                    window.app_handle().exit(0);
+                }
             }
             tauri::WindowEvent::Resized(_) => {
                 // 只有真的最小化了才去读设置文件：拖拽改变尺寸时会高频触发这个事件，
@@ -972,6 +1097,7 @@ fn main() {
             import_offline_tools,
             export_offline_tools,
             list_bundled_tools,
+            list_avs_plugins,
             read_text_file,
             write_text_file,
             open_local,

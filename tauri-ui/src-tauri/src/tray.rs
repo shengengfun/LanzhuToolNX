@@ -4,8 +4,8 @@
 //! - 左键单击 / 双击 → 把主窗口叫回来
 //! - 右键 → 菜单：显示、隐藏、暂停/终止当前任务、打开输出/工具目录、退出
 //!
-//! 「关闭按钮（X）收回托盘」是**默认行为**（设置里可以关掉），
-//! 「最小化时收到托盘」由设置控制，见 `main.rs` 的 `on_window_event`。
+//! 「最小化 / 关闭收进托盘」由设置里的**托盘模式**统一控制，
+//! 见 `main.rs` 的 `on_window_event`；没开托盘模式时点 ✕ 就是直接退出。
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};

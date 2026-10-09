@@ -3,14 +3,13 @@ import { Activity, Cpu, GaugeCircle, HardDrive, MemoryStick } from 'lucide-react
 import { useApp } from '~/state'
 import * as api from '~/lib/api'
 import type { SysStats } from '~/lib/types'
-import { Progress } from './ui'
 
 /**
- * 底栏：就绪指示灯 + 总体压制进度 + 实时性能监控。
+ * 底栏：就绪指示灯 + 当前任务 + 实时性能监控。
  *
- * 为什么进度放这里而不是侧栏：
- * 侧栏是"去哪一页"，底栏是"现在什么状态"。长任务的进度属于状态，
- * 而且放在底栏后，无论用户翻到哪一页都看得见 —— 侧栏那个小圆点做不到这点。
+ * 进度**不画在这里**：底栏那条横贯整屏的进度条又长又抢眼，
+ * 真正该看进度的地方是任务栏图标（后端 `taskbar.rs` 用 ITaskbarList3 画的绿色进度）。
+ * 这里只留一句"压到哪个文件了、多少 %"，翻页时一眼能看到，也不占地方。
  *
  * 性能数据（CPU/GPU/内存）由后端 `sysmon` 后台线程采样，前端 2 秒拉一次现成值，
  * 所以这里不会给界面带来任何额外卡顿。
@@ -46,23 +45,11 @@ export function StatusBar() {
   }, [settings.showMonitor, running])
 
   const hasProgress = !!progress && progress.total > 0
-  // 以"当前文件内部进度"为准（后端按 ffmpeg 的 time= 算出来的），
-  // 不再用"已完成命令数 / 总命令数" —— 那种进度整段文件里都是 0%。
   const pct = hasProgress ? Math.max(0, Math.min(100, progress!.percent * 100)) : 0
   const file = progress?.file ? baseName(progress.file) : ''
 
   return (
     <footer className="relative flex h-8 shrink-0 items-center gap-3 border-t border-border/60 bg-card/70 px-3 text-[11.5px] text-muted-foreground backdrop-blur">
-      {/* 总体进度：贴在底栏上沿的一条细线，任何页面都看得见 */}
-      {running && (
-        <div className="absolute inset-x-0 top-0 h-1 bg-muted/70">
-          <div
-            className="h-full bg-primary shadow-[0_0_6px_var(--primary)] transition-[width] duration-300"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-      )}
-
       <span className="flex items-center gap-1.5">
         <span
           className={`size-1.5 rounded-full ${running ? 'animate-pulse bg-primary' : 'bg-primary/70'}`}
@@ -72,12 +59,9 @@ export function StatusBar() {
 
       {running && (
         <>
-          <div className="flex w-48 items-center gap-2">
-            <Progress value={pct} />
-            <span className="shrink-0 font-semibold tabular-nums text-foreground">
-              {hasProgress ? `${pct.toFixed(1)}%` : '…'}
-            </span>
-          </div>
+          <span className="shrink-0 font-semibold tabular-nums text-foreground">
+            {hasProgress ? `${pct.toFixed(1)}%` : '…'}
+          </span>
           {hasProgress && progress!.total > 1 && (
             <span className="shrink-0 tabular-nums">
               {progress!.done + 1 > progress!.total ? progress!.total : progress!.done + 1}/

@@ -205,6 +205,39 @@ fn escape_filter_path(path: &str) -> String {
     format!("'{}'", p)
 }
 
+/// 把 AVS 脚本里**第一处** `…Source("路径")` 的路径换成 `input`。
+///
+/// 「应用到常规压制」时脚本是用户手写的，里面的源文件路径多半指向别处，
+/// 而这一趟真正要压的是常规压制页选的那个文件，所以把源行改指过去。
+/// 匹配 `ource("` 是为了同时覆盖 `FFVideoSource` / `LWLibavVideoSource` /
+/// `LSMASHVideoSource` / `AudioSource` …；找不到就原样返回，不擅自改用户脚本。
+pub fn retarget_avs_source(script: &str, input: &str) -> String {
+    let Some(pos) = script.find("ource(\"") else {
+        return script.to_string();
+    };
+    let start = pos + "ource(\"".len();
+    let Some(rel_end) = script[start..].find('"') else {
+        return script.to_string();
+    };
+    let end = start + rel_end;
+    format!("{}{}{}", &script[..start], input, &script[end..])
+}
+
+/// 从 AVS 脚本里读出第一处 `…Source("路径")` 的路径（读不到返回 `None`）。
+///
+/// 原版 `txtAVS_TextChanged` 靠正则抠源文件来定输出名；这里是它的无依赖版本。
+pub fn avs_source_path(script: &str) -> Option<String> {
+    let pos = script.find("ource(\"")?;
+    let start = pos + "ource(\"".len();
+    let rel_end = script[start..].find('"')?;
+    let path = &script[start..start + rel_end];
+    if path.trim().is_empty() {
+        None
+    } else {
+        Some(path.to_string())
+    }
+}
+
 /// 镜像原版 `ffmuxbat`。
 pub fn ffmuxbat(tools: &str, input1: &str, input2: &str, output: &str) -> String {
     format!(
@@ -588,12 +621,17 @@ pub fn extract_audio(tools: &str, input: &str, outfile: &str, stream_index: i64)
 ///
 /// 顺序：抽/压音频 → 压视频 → 封装 → 删临时文件 → 打完成标记。
 /// `has_audio` / `audio_format` 需要调用方先用 [`crate::probe`] 探好再传进来。
+///
+/// `video_input` 是**画面**的来源，`input` 是音频与临时文件命名的来源。
+/// 平时两者相同；只有「AVS 应用到常规压制」时会分叉：画面走生成的 `.avs`，
+/// 音频仍从源文件抽，这样加了 AVS 滤镜也不会把音轨弄丢。
 pub fn video_pipeline(
     spec: &VideoSpec,
     audio: &AudioSpec,
     tools: &str,
     temp_dir: &str,
     input: &str,
+    video_input: &str,
     output: &str,
     sub: &str,
     has_audio: bool,
@@ -651,11 +689,11 @@ pub fn video_pipeline(
     let mut x264 = if spec.mode == 2 {
         format!(
             "{}\r\n{}",
-            build_video(spec, tools, input, &temp_video, 1, sub),
-            build_video(spec, tools, input, &temp_video, 2, sub)
+            build_video(spec, tools, video_input, &temp_video, 1, sub),
+            build_video(spec, tools, video_input, &temp_video, 2, sub)
         )
     } else {
-        build_video(spec, tools, input, &temp_video, 0, sub)
+        build_video(spec, tools, video_input, &temp_video, 0, sub)
     };
 
     // 不压制音频时视频直接落最终文件，省掉一次封装
@@ -1519,7 +1557,7 @@ subtitles='C\\:/sub dir/a.ass',hwupload_cuda\""
     fn pipeline_without_audio_writes_output_directly() {
         let s = VideoSpec::default();
         let a = AudioSpec::default();
-        let bat = video_pipeline(&s, &a, T, "C:\\TEMP", "in.mp4", "out.mp4", "", false, "");
+        let bat = video_pipeline(&s, &a, T, "C:\\TEMP", "in.mp4", "in.mp4", "out.mp4", "", false, "");
 
         // 关键：视频那条命令的输出参数必须直接指向最终文件，而不是中间临时文件
         let video_line = bat
@@ -1544,7 +1582,7 @@ subtitles='C\\:/sub dir/a.ass',hwupload_cuda\""
         let mut s = VideoSpec::default();
         s.audio_mode = 0;
         let a = AudioSpec::default();
-        let bat = video_pipeline(&s, &a, T, "C:\\TEMP", "in.mp4", "out.mp4", "", true, "aac");
+        let bat = video_pipeline(&s, &a, T, "C:\\TEMP", "in.mp4", "in.mp4", "out.mp4", "", true, "aac");
 
         let i_audio = bat.find("neroAacEnc.exe").expect("缺少音频编码步骤");
         let i_video = bat.find("libx264").expect("缺少视频编码步骤");
@@ -1560,7 +1598,7 @@ subtitles='C\\:/sub dir/a.ass',hwupload_cuda\""
         let mut s = VideoSpec::default();
         s.audio_mode = 2;
         let a = AudioSpec::default();
-        let bat = video_pipeline(&s, &a, T, "C:\\TEMP", "in.mp4", "out.mp4", "", true, "aac");
+        let bat = video_pipeline(&s, &a, T, "C:\\TEMP", "in.mp4", "in.mp4", "out.mp4", "", true, "aac");
         assert!(bat.contains("-c:a copy -y -map 0:a:0"), "{}", bat);
         assert!(bat.contains("in_atemp.aac"), "{}", bat);
     }
@@ -1749,6 +1787,30 @@ subtitles='C\\:/sub dir/a.ass',hwupload_cuda\""
     fn default_mux_and_avs_suffixes() {
         assert_eq!(default_mux_output("D:\\a\\1.mp4"), "D:\\a\\1_Mux.mp4");
         assert_eq!(default_avs_output("D:\\a\\1.mkv"), "D:\\a\\1_AVS.mp4");
+    }
+
+    /// 「应用到常规压制」时把脚本里的源行改指到真正要压的文件。
+    #[test]
+    fn retarget_avs_source_rewrites_first_source_call() {
+        let s = "LoadPlugin(\"LSMASHSource.DLL\")\nLSMASHVideoSource(\"D:\\\\old\\\\a.mkv\")\nConvertToYV12()";
+        let out = retarget_avs_source(s, "D:\\new\\b.mp4");
+        assert!(out.contains("LSMASHVideoSource(\"D:\\new\\b.mp4\")"), "{}", out);
+        assert!(!out.contains("old"), "{}", out);
+    }
+
+    /// 脚本里没有 `Source("…")` 时一个字符都不该动。
+    #[test]
+    fn retarget_avs_source_leaves_plain_script_alone() {
+        let s = "BlankClip(length=1, width=16, height=16)";
+        assert_eq!(retarget_avs_source(s, "D:\\x.mp4"), s);
+    }
+
+    /// 从脚本里读源文件（原版靠正则抠，这里靠同一套写法）。
+    #[test]
+    fn avs_source_path_reads_first_source_call() {
+        let s = "LoadPlugin(\"a.dll\")\nLWLibavVideoSource(\"D:\\v\\a.mkv\")\nConvertToYV12()";
+        assert_eq!(avs_source_path(s).as_deref(), Some("D:\\v\\a.mkv"));
+        assert_eq!(avs_source_path("ConvertToYV12()"), None);
     }
 
     #[test]

@@ -242,32 +242,31 @@ export function SettingsPage() {
 
       {/* ---------- 窗口与提醒 ---------- */}
       <GroupCard title="窗口与提醒">
-        {/* 只留真正会用到的三项。原来那个「立即隐藏到托盘」按钮 +
-            「点关闭时收进托盘」纯属多余（前者是命令不是设置，
-            后者会让用户找不到关闭按钮），已经移除。 */}
+        {/* 只留真正会用到的三项。原来那个「立即隐藏到托盘」按钮纯属多余
+           （那是命令不是设置），已经移除。 */}
         <div className="grid grid-cols-3 gap-x-4 gap-y-2">
           <Checkbox
-            checked={settings.minimizeToTray}
-            onCheckedChange={(v) => patchSettings({ minimizeToTray: v })}
-            label="最小化时收进托盘"
+           checked={settings.minimizeToTray}
+           onCheckedChange={(v) => patchSettings({ minimizeToTray: v })}
+           label="托盘模式"
           />
           <Checkbox
-            checked={settings.showMonitor}
-            onCheckedChange={(v) => patchSettings({ showMonitor: v })}
-            label="底栏显示 CPU / GPU 内存"
+           checked={settings.showMonitor}
+           onCheckedChange={(v) => patchSettings({ showMonitor: v })}
+           label="底栏显示 CPU / GPU 内存"
           />
           <Checkbox
-            checked={settings.notifyOnFinish}
-            onCheckedChange={(v) => patchSettings({ notifyOnFinish: v })}
-            label="任务完成时弹系统通知"
+           checked={settings.notifyOnFinish}
+           onCheckedChange={(v) => patchSettings({ notifyOnFinish: v })}
+           label="任务完成时弹系统通知"
           />
         </div>
         <p className="mt-2 text-[11.5px] text-muted-foreground">
           托盘图标：左键单击唤回窗口，右键出菜单（显示 / 隐藏 / 暂停任务 / 终止任务 /
           打开输出目录 / 打开工具目录 / 退出）。
           <br />
-          点窗口右上角的 ✕ 会<b className="text-foreground">收回托盘</b>而不是退出；
-          真要退出请用托盘菜单里那一条。
+          不勾「托盘模式」时，点右上角的 ✕ 就是<b className="text-foreground">直接退出</b>；
+          勾上之后关窗 / 最小化都会把窗口收进任务栏托盘，进程继续跑。
         </p>
       </GroupCard>
 

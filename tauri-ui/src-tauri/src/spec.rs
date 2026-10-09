@@ -46,6 +46,11 @@ pub struct VideoSpec {
     pub audio_params: String,
     pub container: String,
     pub auto_shutdown: bool,
+
+    /// AVS 脚本全文（仅「应用到常规压制全局」时使用）
+    pub avs_script: String,
+    /// true = 这一趟压制先过 AVS 脚本（画面来源换成脚本生成的 .avs）
+    pub avs_apply: bool,
 }
 
 impl Default for VideoSpec {
@@ -79,6 +84,8 @@ impl Default for VideoSpec {
             audio_params: "--abitrate 128".into(),
             container: "mp4".into(),
             auto_shutdown: false,
+            avs_script: String::new(),
+            avs_apply: false,
         }
     }
 }
@@ -180,6 +187,26 @@ pub struct Meme {
     pub fallback: bool,
 }
 
+/// AVS 外置滤镜 / 脚本目录里的一个条目。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AvsPlugin {
+    pub name: String,
+    /// "filter" = .dll（脚本里要 `LoadPlugin`）/ "script" = .avs/.avsi（AviSynth 自动加载）
+    pub kind: String,
+}
+
+/// `tools/avs/plugins` 的内容 —— AVS 页面底下那个「已加载的外置滤镜 / 脚本」框。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AvsPlugins {
+    /// 滤镜目录绝对路径（界面上显示，方便用户自己往里丢插件）
+    pub dir: String,
+    /// `avs/AviSynth.dll` 在不在（不在的话 AVS 压制根本跑不起来）
+    pub avisynth: bool,
+    pub plugins: Vec<AvsPlugin>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ExtractSpec {
@@ -206,6 +233,10 @@ impl Default for ExtractSpec {
 pub struct AvsSpec {
     pub script: String,
     pub script_path: String,
+    /// 源视频文件：「压制音频」时音轨从这里抽（原版 `audiobat(namevideo9, …)`）
+    pub source: String,
+    /// 是否压制音频
+    pub with_audio: bool,
     /// AVS 走的是和普通视频完全一样的压制链路，只是输入换成 .avs
     pub spec: VideoSpec,
 }
@@ -215,6 +246,8 @@ impl Default for AvsSpec {
         Self {
             script: String::new(),
             script_path: String::new(),
+            source: String::new(),
+            with_audio: false,
             spec: VideoSpec::default(),
         }
     }

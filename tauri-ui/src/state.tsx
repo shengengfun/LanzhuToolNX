@@ -191,6 +191,29 @@ export const MAX_RECENT = 10
 /** 工作区（上次用的参数）落盘前的防抖时间：输入框一路敲下去不该每次都写文件。 */
 const WORKSPACE_SAVE_DELAY = 700
 
+/**
+ * 「上次用的参数」里哪些字段是**这一次**的（文件 / 临时开关）而不是**设置**。
+ *
+ * 压制 / 封装 / 抽取这三个页面每次压的都是不同的片子 —— 把路径也记下来，
+ * 下次打开就只有一个指向上一部片子的陈旧路径，反而碍事。所以落盘前统一抹掉，
+ * 界面上（内存里）当然还是正常的。
+ */
+const VOLATILE_FIELDS: Record<string, Record<string, string | boolean | string[]>> = {
+  video: { input: '', output: '', subtitle: '', avsScript: '', avsApply: false },
+  mux: { video: '', audios: [], output: '' },
+  extract: { input: '', output: '' },
+}
+
+function dropPaths<T extends object>(key: string, spec: T): T {
+  const fields = VOLATILE_FIELDS[key]
+  if (!fields) return spec
+  const next = { ...spec } as Record<string, unknown>
+  for (const [f, def] of Object.entries(fields)) {
+    next[f] = Array.isArray(def) ? [...def] : def
+  }
+  return next as T
+}
+
 let logSeq = 0
 
 /** 一条进度快照。`percent` 是含"当前文件内部进度"的整体进度。 */
@@ -366,10 +389,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }, WORKSPACE_SAVE_DELAY)
   }, [])
 
-  // 视频 / 音频参数一变就记下来（同一路防抖，不会每次敲键都写盘）
+  // 视频 / 音频参数一变就记下来（同一路防抖，不会每次敲键都写盘）。
+  // 视频的「文件」与临时开关不落盘，见 VOLATILE_FIELDS。
   React.useEffect(() => {
     if (!ready) return
-    patchWorkspace({ video })
+    patchWorkspace({ video: dropPaths('video', video) })
   }, [video, ready, patchWorkspace])
 
   React.useEffect(() => {
@@ -651,6 +675,8 @@ export function defaultVideo(): VideoSpec {
     audioParams: '--abitrate 128',
     container: 'mp4',
     autoShutdown: false,
+    avsScript: '',
+    avsApply: false,
   }
 }
 
@@ -695,7 +721,8 @@ export function useWorkspaceSpec<T extends object>(key: WorkspaceSpecKey, initia
     hydrated.current = true
     const stored = settings.workspace?.[key] as T | null | undefined
     if (stored) {
-      const merged = { ...spec, ...stored }
+      // 老版本设置文件里可能存着文件路径，一并抹掉（免得回填出上一部片子）
+      const merged = dropPaths(key, { ...spec, ...stored })
       latest.current = merged
       setSpec(merged)
     }
@@ -708,7 +735,7 @@ export function useWorkspaceSpec<T extends object>(key: WorkspaceSpecKey, initia
       const next = { ...latest.current, ...p }
       latest.current = next
       setSpec(next)
-      patchWorkspace({ [key]: next } as unknown as Partial<WorkspaceState>)
+      patchWorkspace({ [key]: dropPaths(key, next) } as unknown as Partial<WorkspaceState>)
     },
     [key, patchWorkspace],
   )
