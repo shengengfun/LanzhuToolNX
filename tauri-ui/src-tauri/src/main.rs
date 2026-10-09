@@ -741,6 +741,50 @@ fn list_avs_plugins() -> AvsPlugins {
     }
 }
 
+/// 把用户挑的滤镜 / 脚本复制进 `tools/avs/plugins`，返回刷新后的清单。
+///
+/// 原版只能自己去往目录里丢文件（`plugins/说明.txt` 也是这么教的）；这里给
+/// 「导入滤镜」按钮用：选文件（可多选）→ 复制进插件目录 → 立刻出现在下面的清单里。
+/// 同名文件按覆盖处理 —— 同一个滤镜换新版是常见操作。
+#[tauri::command(rename_all = "camelCase")]
+fn import_avs_plugins(paths: Vec<String>) -> Result<AvsPlugins, String> {
+    let plugins_dir = std::path::Path::new(&tools_dir()).join("avs").join("plugins");
+    for p in &paths {
+        import_avs_plugin(&plugins_dir, p)?;
+    }
+    Ok(list_avs_plugins())
+}
+
+/// 单个文件的导入：只收 `.dll` / `.avsi` / `.avs`；
+/// 挑的正好是目录里那个文件（同一个路径）时直接跳过，免得 Windows 上自己拷自己报错。
+fn import_avs_plugin(plugins_dir: &std::path::Path, src_str: &str) -> Result<(), String> {
+    let src = std::path::Path::new(src_str.trim());
+    if !src.is_file() {
+        return Err(format!("找不到文件：{}", src_str));
+    }
+    let name = src
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| format!("路径无效：{}", src_str))?;
+    let ext = src
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !matches!(ext.as_str(), "dll" | "avsi" | "avs") {
+        return Err(format!("只收 .dll / .avsi / .avs，{} 不行", name));
+    }
+    let dst = plugins_dir.join(name);
+    if let (Ok(a), Ok(b)) = (src.canonicalize(), dst.canonicalize()) {
+        if a == b {
+            return Ok(());
+        }
+    }
+    std::fs::create_dir_all(plugins_dir).map_err(|e| format!("创建滤镜目录失败：{}", e))?;
+    std::fs::copy(src, &dst).map_err(|e| format!("复制 {} 失败：{}", name, e))?;
+    Ok(())
+}
+
 #[tauri::command(rename_all = "camelCase")]
 fn read_text_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| format!("读取失败：{}", e))
@@ -1098,6 +1142,7 @@ fn main() {
             export_offline_tools,
             list_bundled_tools,
             list_avs_plugins,
+            import_avs_plugins,
             read_text_file,
             write_text_file,
             open_local,
@@ -1111,4 +1156,39 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp_dir(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("lanzhutool_avs_import_{}", name));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn import_avs_plugin_copies_and_skips_same_file() {
+        let dir = tmp_dir("copy");
+        let src = dir.join("Foo.dll");
+        std::fs::write(&src, b"dll").unwrap();
+        let plugins = dir.join("plugins");
+
+        import_avs_plugin(&plugins, src.to_str().unwrap()).unwrap();
+        assert!(plugins.join("Foo.dll").is_file());
+
+        // 挑的正好是目录里那一个：跳过，不报错
+        import_avs_plugin(&plugins, plugins.join("Foo.dll").to_str().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn import_avs_plugin_rejects_other_extensions() {
+        let dir = tmp_dir("reject");
+        let src = dir.join("readme.txt");
+        std::fs::write(&src, b"x").unwrap();
+        let err = import_avs_plugin(&dir.join("plugins"), src.to_str().unwrap()).unwrap_err();
+        assert!(err.contains(".dll"), "{}", err);
+    }
 }

@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { FileCode2, FolderSearch, Pause, Play, Save, Square, Wand2, X } from 'lucide-react'
+import { FileCode2, FolderSearch, Pause, Play, RefreshCw, Save, Square, Upload, Wand2, X } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -16,7 +16,7 @@ import {
   Textarea,
 } from '~/components/ui'
 import { PathRow } from '~/components/common'
-import { useApp, useWorkspaceValue, pickFile, pickSave } from '~/state'
+import { useApp, useWorkspaceValue, pickFile, pickFiles, pickSave } from '~/state'
 import * as api from '~/lib/api'
 import type { AvsPlugins } from '~/lib/types'
 import { VIDEO_FORMATS } from '~/lib/types'
@@ -265,9 +265,47 @@ export function AvsPage() {
     }
   }
 
+  const insertPlugins = (names: string[], dir = avs.dir) => {
+    const lines = names.map((n) => `LoadPlugin("${dir}\\${n}")`).join('\r\n')
+    setScript(`${lines}\r\n${script}`)
+  }
+
   const insertPlugin = (name: string) => {
-    setScript(`LoadPlugin("${pluginPath(name)}")\r\n${script}`)
+    insertPlugins([name])
     notify(`已插入 ${name}`)
+  }
+
+  /** 重新扫一遍 `tools/avs/plugins`（往目录里手动丢文件之后用）。 */
+  const refreshPlugins = async () => {
+    try {
+      setAvs(await api.listAvsPlugins())
+    } catch (e) {
+      notify(String(e).replace(/^Error:\s*/, ''), 'error')
+    }
+  }
+
+  /**
+   * 导入外部滤镜：选文件（可多选）→ 复制进 `tools/avs/plugins` → 清单立刻刷新，
+   * dll 顺手插进脚本。原版只能自己去往目录里丢文件，这里给条正道。
+   */
+  const importPlugins = async () => {
+    const files = await pickFiles('导入外部滤镜 / 脚本（可多选）', [
+      { name: 'AVS 滤镜 / 脚本', extensions: ['dll', 'avsi', 'avs'] },
+      { name: '所有文件', extensions: ['*'] },
+    ])
+    if (!files.length) return
+    try {
+      const next = await api.importAvsPlugins(files)
+      setAvs(next)
+      const names = files.map(baseName)
+      insertPlugins(
+        names.filter((n) => extOf(n) === '.dll'),
+        next.dir,
+      )
+      notify(`已导入 ${names.length} 个：${names.join('、')}`)
+    } catch (e) {
+      notify(String(e).replace(/^Error:\s*/, ''), 'error')
+    }
   }
 
   const dllCount = avs.plugins.filter((p) => p.kind === 'filter').length
@@ -311,7 +349,7 @@ export function AvsPage() {
         {/* 已加载的外部滤镜 / 脚本：点一条就把 LoadPlugin 插到脚本开头 */}
         <GroupCard
           title="已加载的外部滤镜 / 脚本"
-          className="flex h-[178px] shrink-0 flex-col"
+          className="flex h-[210px] shrink-0 flex-col"
           right={
             <span className="flex items-center gap-1.5">
               <Badge variant={avs.avisynth ? 'success' : 'destructive'}>
@@ -323,16 +361,32 @@ export function AvsPage() {
             </span>
           }
         >
-          <div
-            className="mb-1.5 flex items-center gap-1.5 text-[11.5px] text-muted-foreground"
-            title={avs.dir}
-          >
+          <div className="mb-1.5 flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
             <FolderSearch className="size-3 shrink-0" />
-            <span className="truncate">{avs.dir || '（未找到 avs/plugins 目录）'}</span>
+            <span className="min-w-0 flex-1 truncate" title={avs.dir}>
+              {avs.dir || '（未找到 avs/plugins 目录）'}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              title="选择 .dll / .avsi / .avs（可多选）复制进上面的目录，dll 会顺手插进脚本"
+              onClick={() => void importPlugins()}
+            >
+              <Upload className="size-3.5" />
+              导入滤镜
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              title="重新扫描目录"
+              onClick={() => void refreshPlugins()}
+            >
+              <RefreshCw className="size-3.5" />
+            </Button>
           </div>
           <ListShell className="min-h-0 flex-1">
             {avs.plugins.length === 0 ? (
-              <EmptyState title="没有找到外置滤镜" hint="把 .dll / .avsi 丢进上面的目录即可" />
+              <EmptyState title="没有找到外置滤镜" hint="点「导入滤镜」选一个，或把 .dll / .avsi 丢进上面的目录" />
             ) : (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-0.5 p-1">
                 {avs.plugins.map((p) => (

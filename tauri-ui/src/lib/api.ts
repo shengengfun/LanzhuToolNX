@@ -236,6 +236,10 @@ export const listBundledTools = () => call<string[]>('list_bundled_tools', {}, [
 export const listAvsPlugins = () =>
   call<AvsPlugins>('list_avs_plugins', {}, { dir: '', avisynth: false, plugins: [] })
 
+/** 把挑中的滤镜 / 脚本复制进 `tools/avs/plugins`，返回刷新后的清单。 */
+export const importAvsPlugins = (paths: string[]) =>
+  call<AvsPlugins>('import_avs_plugins', { paths }, { dir: '', avisynth: false, plugins: [] })
+
 /** 默认工具目录：包内 tools/ 或用户配置的目录。 */
 export const resolveToolsDir = () => call<string>('resolve_tools_dir', {}, '（预览模式）')
 

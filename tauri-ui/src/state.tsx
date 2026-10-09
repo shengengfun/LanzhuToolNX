@@ -359,8 +359,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // 把上次用的参数填回表单（原版 InitParameter() 干的就是这件事）。
         // 逐字段合并而不是整体替换：老版本的 settings.json 里字段可能不全。
         const w = s.workspace
-        if (w?.video) setVideo((v) => ({ ...v, ...w.video }))
-        if (w?.audio) setAudio((a) => ({ ...a, ...w.audio }))
+        // 回填时同样要抹掉「这一趟」的字段：老版本（或 1.3.6 以前）的设置文件里
+        // 存着上次的源文件 / 输出路径，直接合并就会把上一部片子的路径填回表单，
+        // 而且落盘时又被抹掉 —— 文件看着是干净的，界面上却一直挂着那个陈旧路径。
+        const wv = w?.video
+        const wa = w?.audio
+        if (wv) setVideo((v) => ({ ...v, ...dropPaths('video', wv) }))
+        if (wa) setAudio((a) => ({ ...a, ...wa }))
       })
       .catch(() => void 0)
       .finally(() => setReady(true))
